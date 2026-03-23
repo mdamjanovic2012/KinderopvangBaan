@@ -34,7 +34,7 @@ export const api = {
   job: (id) => request(`/jobs/${id}/`),
   nearbyJobs: ({ lat, lng, radius = 15, type } = {}) => {
     const params = new URLSearchParams({ lat, lng, radius });
-    if (type) params.set("type", type);
+    if (type) params.set("job_type", type);
     return request(`/jobs/nearby/?${params}`);
   },
 };
