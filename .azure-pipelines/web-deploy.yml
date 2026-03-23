@@ -17,7 +17,7 @@ pr:
       - web/**
 
 pool:
-  vmImage: ubuntu-latest
+  name: MacLocal
 
 variables:
   NODE_VERSION: "20.x"
