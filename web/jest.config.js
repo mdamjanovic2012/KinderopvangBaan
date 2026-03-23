@@ -5,6 +5,10 @@ const createJestConfig = nextJest({
 });
 
 const customJestConfig = {
+  reporters: [
+    "default",
+    ["jest-junit", { outputDirectory: "coverage", outputName: "junit.xml" }],
+  ],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
   testEnvironment: "jest-environment-jsdom",
   moduleNameMapper: {
