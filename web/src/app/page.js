@@ -1,0 +1,96 @@
+import Link from "next/link";
+
+export default function Home() {
+  return (
+    <main className="min-h-screen bg-white">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-8 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl font-bold text-blue-700">KinderopvangBaan</span>
+          <span className="text-xs text-gray-400 font-medium">.nl</span>
+        </div>
+        <div className="flex items-center gap-6 text-sm font-medium text-gray-600">
+          <Link href="/map" className="hover:text-blue-700 transition-colors">Kaart</Link>
+          <Link href="/jobs" className="hover:text-blue-700 transition-colors">Vacatures</Link>
+          <Link href="/workers" className="hover:text-blue-700 transition-colors">Medewerkers</Link>
+          <Link href="/login" className="bg-blue-700 text-white px-4 py-2 rounded-lg hover:bg-blue-800 transition-colors">
+            Inloggen
+          </Link>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="flex flex-col items-center justify-center text-center px-8 py-24 bg-gradient-to-b from-blue-50 to-white">
+        <span className="bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-6">
+          Specialist in kinderopvang
+        </span>
+        <h1 className="text-5xl font-bold text-gray-900 max-w-3xl leading-tight mb-6">
+          Vind de perfecte plek in{" "}
+          <span className="text-blue-700">kinderopvang</span>
+        </h1>
+        <p className="text-xl text-gray-500 max-w-2xl mb-10">
+          Het platform dat BSO's, KDV's en gastouderbureaus verbindt met
+          pedagogisch medewerkers. Bekijk de interactieve kaart en ontdek
+          vacatures bij jou in de buurt.
+        </p>
+        <div className="flex gap-4">
+          <Link
+            href="/map"
+            className="bg-blue-700 text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-blue-800 transition-colors shadow-lg shadow-blue-200"
+          >
+            Bekijk de kaart
+          </Link>
+          <Link
+            href="/jobs"
+            className="border border-gray-200 text-gray-700 px-8 py-4 rounded-xl font-semibold text-lg hover:bg-gray-50 transition-colors"
+          >
+            Alle vacatures
+          </Link>
+        </div>
+      </section>
+
+      {/* Stats */}
+      <section className="grid grid-cols-3 gap-8 max-w-3xl mx-auto py-16 px-8 text-center">
+        {[
+          { number: "14.000+", label: "Kinderopvanglocaties in NL" },
+          { number: "3 typen", label: "BSO · KDV · Gastouder" },
+          { number: "10 km", label: "Gemiddelde zoekradius" },
+        ].map((s) => (
+          <div key={s.label}>
+            <div className="text-3xl font-bold text-blue-700 mb-1">{s.number}</div>
+            <div className="text-sm text-gray-500">{s.label}</div>
+          </div>
+        ))}
+      </section>
+
+      {/* Features */}
+      <section className="bg-gray-50 py-20 px-8">
+        <div className="max-w-5xl mx-auto grid grid-cols-3 gap-8">
+          {[
+            {
+              icon: "🗺️",
+              title: "Interactieve kaart",
+              desc: "Alle kinderopvanglocaties op één kaart. Filter op type, afstand en beschikbaarheid.",
+            },
+            {
+              icon: "📍",
+              title: "Vacatures in de buurt",
+              desc: "Medewerkers zoeken vacatures op loopafstand. Radius instelbaar per persoon.",
+            },
+            {
+              icon: "✅",
+              title: "Geverifieerde profielen",
+              desc: "VOG-status, LRK-registratie en diploma's gecontroleerd en zichtbaar.",
+            },
+          ].map((f) => (
+            <div key={f.title} className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+              <div className="text-4xl mb-4">{f.icon}</div>
+              <h3 className="font-semibold text-gray-900 mb-2 text-lg">{f.title}</h3>
+              <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
