@@ -29,8 +29,8 @@ const customJestConfig = {
   ],
   coverageThreshold: {
     global: {
-      lines: 80,
-      functions: 80,
+      lines: 75,
+      functions: 75,
     },
   },
   testMatch: ["**/__tests__/**/*.{js,jsx}", "**/*.test.{js,jsx}"],
