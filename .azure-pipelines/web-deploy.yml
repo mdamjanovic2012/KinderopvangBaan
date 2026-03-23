@@ -189,7 +189,7 @@ stages:
           - script: |
               newman run tests/postman/kinderopvangbaan.postman_collection.json \
                 --environment tests/postman/environment.json \
-                --env-var "baseUrl=$(NEXT_PUBLIC_API_URL)" \
+                --env-var "BASE_URL=$(NEXT_PUBLIC_API_URL)" \
                 --reporters cli,junitfull \
                 --reporter-junitfull-export $(Build.ArtifactStagingDirectory)/newman-results.xml \
                 --bail
