@@ -3,7 +3,7 @@ set -e
 
 GDAL_CACHE="/home/gdal-cache"
 
-if [ ! -f "$GDAL_CACHE/.installed" ]; then
+if [ ! -f "$GDAL_CACHE/.installed_v2" ]; then
     echo "Installing GDAL/GEOS runtime (first run)..."
     # Install runtime only (much smaller/faster than -dev)
     apt-get update -qq && apt-get install -y -q libgdal28 libgeos-c1v5
@@ -22,7 +22,7 @@ if [ ! -f "$GDAL_CACHE/.installed" ]; then
         [ -f "$lib" ] && cp "$lib" "$GDAL_CACHE/" 2>/dev/null || true
     done
 
-    touch "$GDAL_CACHE/.installed"
+    touch "$GDAL_CACHE/.installed_v2"
     echo "GDAL cached: $(ls $GDAL_CACHE | wc -l) files"
 else
     echo "Using cached GDAL from $GDAL_CACHE"
