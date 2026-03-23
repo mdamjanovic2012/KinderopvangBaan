@@ -1,0 +1,66 @@
+from rest_framework import generics, permissions
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.contrib.gis.geos import Point
+from django.contrib.gis.db.models.functions import Distance
+from django.contrib.gis.measure import D
+from .models import Institution, Review
+from .serializers import InstitutionSerializer, ReviewSerializer
+
+
+class InstitutionListView(generics.ListAPIView):
+    serializer_class = InstitutionSerializer
+    permission_classes = [permissions.AllowAny]
+    filterset_fields = ["institution_type", "city", "lrk_verified"]
+    search_fields = ["name", "city", "postcode"]
+
+    def get_queryset(self):
+        return Institution.objects.filter(is_active=True)
+
+
+class InstitutionDetailView(generics.RetrieveAPIView):
+    serializer_class = InstitutionSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = Institution.objects.filter(is_active=True)
+
+
+class NearbyInstitutionsView(APIView):
+    """
+    GET /api/institutions/nearby/?lat=52.37&lng=4.89&radius=10&type=bso
+    Returns institutions within `radius` km, ordered by distance.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        try:
+            lat = float(request.query_params["lat"])
+            lng = float(request.query_params["lng"])
+        except (KeyError, ValueError):
+            return Response({"error": "lat and lng required."}, status=400)
+
+        radius = float(request.query_params.get("radius", 10))
+        institution_type = request.query_params.get("type")
+
+        point = Point(lng, lat, srid=4326)
+        qs = Institution.objects.filter(
+            is_active=True,
+            location__distance_lte=(point, D(km=radius)),
+        ).annotate(
+            distance=Distance("location", point)
+        ).order_by("distance")
+
+        if institution_type:
+            qs = qs.filter(institution_type=institution_type)
+
+        serializer = InstitutionSerializer(qs, many=True, context={"request": request})
+        return Response(serializer.data)
+
+
+class ReviewListView(generics.ListCreateAPIView):
+    serializer_class = ReviewSerializer
+
+    def get_queryset(self):
+        return Review.objects.filter(institution_id=self.kwargs["pk"])
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user, institution_id=self.kwargs["pk"])

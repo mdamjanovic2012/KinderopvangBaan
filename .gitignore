@@ -1,0 +1,37 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+*.sqlite3
+venv/
+.venv/
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.env.local
+web/.env.production
+web/out/
+
+# Mobile
+mobile/node_modules/
+mobile/.expo/
+mobile/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
