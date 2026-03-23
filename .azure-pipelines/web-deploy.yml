@@ -118,6 +118,9 @@ stages:
       - job: BuildNextJs
         displayName: "Next.js standalone build"
         steps:
+          - checkout: self
+            persistCredentials: true
+
           - task: NodeTool@0
             inputs:
               versionSpec: $(NODE_VERSION)
@@ -158,9 +161,11 @@ stages:
               git config user.email "devops@kinderopvangbaan.nl"
               git config user.name "Azure DevOps"
               git tag -a "v$(VERSION)" -m "Release v$(VERSION) [skip ci]"
-              git push origin "v$(VERSION)"
+              git -c http.extraHeader="Authorization: Bearer $(System.AccessToken)" push origin "v$(VERSION)"
             displayName: "Tag release v$(VERSION)"
             condition: succeeded()
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
 
   # ─────────────────────────────────────────
   # STAGE 4: API Integration Tests (Newman)
