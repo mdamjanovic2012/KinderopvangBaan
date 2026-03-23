@@ -1,11 +1,15 @@
 #!/bin/bash
 set -e
 
-cd backend
+# Install GDAL/GEOS system libraries if not present
+if ! find /usr/lib -name "libgdal.so*" 2>/dev/null | grep -q .; then
+    echo "Installing GDAL/GEOS..."
+    apt-get update -qq && apt-get install -y -q libgdal-dev libgeos-dev
+fi
 
-# Find GDAL/GEOS libraries dynamically on Azure App Service
-GDAL_SO=$(find /usr/lib -name "libgdal.so*" 2>/dev/null | head -1)
-GEOS_SO=$(find /usr/lib -name "libgeos_c.so*" 2>/dev/null | head -1)
+# Find actual library paths (versioned filenames like libgdal.so.30)
+GDAL_SO=$(find /usr/lib -name "libgdal.so*" ! -name "*.la" 2>/dev/null | head -1)
+GEOS_SO=$(find /usr/lib -name "libgeos_c.so*" ! -name "*.la" 2>/dev/null | head -1)
 
 if [ -n "$GDAL_SO" ]; then
     export GDAL_LIBRARY_PATH="$GDAL_SO"
@@ -17,6 +21,7 @@ fi
 echo "GDAL: $GDAL_LIBRARY_PATH"
 echo "GEOS: $GEOS_LIBRARY_PATH"
 
+cd backend
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
