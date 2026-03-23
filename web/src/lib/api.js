@@ -1,10 +1,17 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
+function getToken() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("kb_access");
+}
+
 async function request(path, options = {}) {
+  const token = getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   });
@@ -37,4 +44,9 @@ export const api = {
     if (type) params.set("job_type", type);
     return request(`/jobs/nearby/?${params}`);
   },
+  applyToJob: (jobId, coverLetter) =>
+    request(`/jobs/${jobId}/apply/`, {
+      method: "POST",
+      body: JSON.stringify({ cover_letter: coverLetter }),
+    }),
 };

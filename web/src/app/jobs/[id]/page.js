@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import Nav from "@/components/Nav";
+import { useAuth } from "@/context/AuthContext";
 
 const CONTRACT_LABELS = {
   fulltime: "Full-time",
@@ -21,8 +23,14 @@ const JOB_TYPE_LABELS = {
 
 export default function JobDetailPage({ params }) {
   const { id } = params;
+  const { user } = useAuth();
+  const router = useRouter();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [coverLetter, setCoverLetter] = useState("");
+  const [applied, setApplied] = useState(false);
+  const [applyError, setApplyError] = useState(null);
 
   useEffect(() => {
     api.job(id)
@@ -133,12 +141,59 @@ export default function JobDetailPage({ params }) {
             {/* Apply CTA */}
             <div className="bg-blue-700 rounded-2xl p-5 text-white">
               <div className="text-sm font-semibold mb-3">Reageer op deze vacature</div>
-              <Link
-                href="/login"
-                className="block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors"
-              >
-                Inloggen om te reageren
-              </Link>
+              {applied ? (
+                <div className="text-center text-sm bg-white text-green-700 rounded-lg py-2.5 font-semibold">
+                  ✓ Sollicitatie verstuurd!
+                </div>
+              ) : applying ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={coverLetter}
+                    onChange={(e) => setCoverLetter(e.target.value)}
+                    placeholder="Korte motivatie (optioneel)..."
+                    rows={4}
+                    className="w-full rounded-lg px-3 py-2 text-sm text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  />
+                  {applyError && (
+                    <div className="text-xs text-red-200">{applyError}</div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.applyToJob(id, coverLetter);
+                          setApplied(true);
+                        } catch (err) {
+                          setApplyError(err?.non_field_errors?.[0] || "Er ging iets mis.");
+                        }
+                      }}
+                      className="flex-1 bg-white text-blue-700 font-semibold text-sm py-2 rounded-lg hover:bg-blue-50 transition-colors"
+                    >
+                      Versturen
+                    </button>
+                    <button
+                      onClick={() => setApplying(false)}
+                      className="text-sm text-blue-200 hover:text-white transition-colors px-2"
+                    >
+                      Annuleren
+                    </button>
+                  </div>
+                </div>
+              ) : user ? (
+                <button
+                  onClick={() => setApplying(true)}
+                  className="w-full block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors"
+                >
+                  Solliciteren
+                </button>
+              ) : (
+                <Link
+                  href={`/login?next=/jobs/${id}`}
+                  className="block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors"
+                >
+                  Inloggen om te reageren
+                </Link>
+              )}
             </div>
 
             {/* Job details */}
