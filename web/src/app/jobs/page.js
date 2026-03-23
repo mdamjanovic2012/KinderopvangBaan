@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import Nav from "@/components/Nav";
+import { useAuth } from "@/context/AuthContext";
 
 const JOB_TYPE_OPTIONS = [
   { value: "", label: "Alle functies" },
@@ -104,12 +105,19 @@ function JobCard({ job }) {
 }
 
 export default function JobsPage() {
+  const { profile } = useAuth();
+  const profileRadius = profile?.work_radius_km ?? null;
+
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ job_type: "", contract_type: "", radius: 15 });
-  const [mode, setMode] = useState("all"); // "all" | "nearby"
+  const [filters, setFilters] = useState({ job_type: "", contract_type: "", radius: profileRadius ?? 15 });
+  const [mode, setMode] = useState("all");
   const [userLocation, setUserLocation] = useState(null);
+
+  useEffect(() => {
+    if (profileRadius) setFilters((f) => ({ ...f, radius: profileRadius }));
+  }, [profileRadius]);
 
   const loadAll = useCallback(() => {
     setLoading(true);
@@ -195,18 +203,6 @@ export default function JobsPage() {
             ))}
           </select>
 
-          {mode === "nearby" && (
-            <select
-              value={filters.radius}
-              onChange={(e) => setFilters((f) => ({ ...f, radius: Number(e.target.value) }))}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            >
-              {RADIUS_OPTIONS.map((r) => (
-                <option key={r} value={r}>{r} km</option>
-              ))}
-            </select>
-          )}
-
           <button
             onClick={handleGeolocate}
             className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:bg-blue-800 transition-colors shrink-0"
@@ -224,6 +220,35 @@ export default function JobsPage() {
           )}
         </div>
       </div>
+
+      {/* Radius banner */}
+      {mode === "nearby" && (
+        <div className="bg-blue-50 border-b border-blue-100">
+          <div className="max-w-5xl mx-auto px-6 py-2 flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-blue-700">
+              📍 Vacatures binnen <strong>{filters.radius} km</strong>
+              {profileRadius && filters.radius === profileRadius && (
+                <span className="ml-1 text-blue-500">(jouw voorkeur)</span>
+              )}
+            </span>
+            <div className="flex items-center gap-1 ml-auto">
+              {RADIUS_OPTIONS.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setFilters((f) => ({ ...f, radius: r }))}
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                    filters.radius === r
+                      ? "bg-blue-700 text-white"
+                      : "bg-white text-blue-600 border border-blue-200 hover:bg-blue-100"
+                  }`}
+                >
+                  {r} km
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-6 py-8">
         {/* Header */}

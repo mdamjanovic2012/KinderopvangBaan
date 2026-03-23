@@ -26,5 +26,10 @@ jest.mock("next/navigation", () => ({
 beforeEach(() => {
   localStorage.clear();
   jest.clearAllMocks();
-  global.fetch.mockReset();
+  // Default fetch: return 404 so fetchWorkerProfile returns null gracefully
+  global.fetch.mockResolvedValue({
+    ok: false,
+    status: 404,
+    json: async () => ({}),
+  });
 });

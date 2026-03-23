@@ -231,22 +231,31 @@ export default function WorkerProfilePage() {
 
           {/* Zoekradius */}
           <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-900 mb-4">Zoekradius</h2>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
-                min="1"
-                max="50"
-                value={form.work_radius_km}
-                onChange={(e) => setForm((f) => ({ ...f, work_radius_km: Number(e.target.value) }))}
-                className="flex-1 accent-blue-700"
-              />
-              <span className="text-sm font-semibold text-blue-700 w-16 text-right">
-                {form.work_radius_km} km
-              </span>
+            <h2 className="text-sm font-semibold text-gray-900 mb-1">Zoekradius</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Vacatures en instellingen worden gefilterd op deze afstand van jouw locatie.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {[5, 10, 15, 25, 50].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, work_radius_km: r }))}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    form.work_radius_km === r
+                      ? "bg-blue-700 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {r} km
+                </button>
+              ))}
             </div>
-            <p className="text-xs text-gray-400 mt-2">
-              Je ziet vacatures binnen {form.work_radius_km} km van jouw locatie.
+            <p className="text-xs text-gray-400 mt-3">
+              Geselecteerd: <strong className="text-blue-700">{form.work_radius_km} km</strong>{" · "}
+              Wordt toegepast op{" "}
+              <Link href="/map" className="text-blue-600 hover:underline">Kaart</Link>{" "}en{" "}
+              <Link href="/jobs" className="text-blue-600 hover:underline">Vacatures</Link>.
             </p>
           </div>
 

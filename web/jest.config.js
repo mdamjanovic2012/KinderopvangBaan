@@ -11,6 +11,10 @@ const customJestConfig = {
     "^@/(.*)$": "<rootDir>/src/$1",
     "^mapbox-gl$": "<rootDir>/src/__mocks__/mapbox-gl.js",
     "^react-map-gl$": "<rootDir>/src/__mocks__/react-map-gl.js",
+    "^react-map-gl/mapbox$": "<rootDir>/src/__mocks__/react-map-gl.js",
+    "^react-map-gl/maplibre$": "<rootDir>/src/__mocks__/react-map-gl.js",
+    "^maplibre-gl$": "<rootDir>/src/__mocks__/mapbox-gl.js",
+    "^supercluster$": "<rootDir>/src/__mocks__/supercluster.js",
   },
   collectCoverageFrom: [
     "src/**/*.{js,jsx}",

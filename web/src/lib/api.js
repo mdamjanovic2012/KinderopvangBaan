@@ -25,6 +25,10 @@ export const api = {
     const qs = new URLSearchParams(params).toString();
     return request(`/institutions/?${qs}`);
   },
+  mapPins: (type) => {
+    const qs = type ? `?type=${type}` : "";
+    return request(`/institutions/map-pins/${qs}`);
+  },
   institution: (id) => request(`/institutions/${id}/`),
   nearbyInstitutions: ({ lat, lng, radius = 10, type } = {}) => {
     const params = new URLSearchParams({ lat, lng, radius });

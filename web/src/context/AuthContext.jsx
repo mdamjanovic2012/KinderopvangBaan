@@ -7,15 +7,35 @@ const AuthContext = createContext(null);
 
 const ACCESS_KEY = "kb_access";
 const REFRESH_KEY = "kb_refresh";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+
+async function fetchWorkerProfile(token) {
+  const res = await fetch(`${BASE_URL}/auth/worker-profile/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     setUser(null);
+    setProfile(null);
+  }, []);
+
+  const loadProfile = useCallback(async (me) => {
+    if (me?.role === "worker") {
+      const p = await fetchWorkerProfile(localStorage.getItem(ACCESS_KEY));
+      setProfile(p);
+    } else {
+      setProfile(null);
+    }
   }, []);
 
   // Try to restore session on mount
@@ -28,20 +48,20 @@ export function AuthProvider({ children }) {
     }
 
     getMeRequest(access)
-      .then(setUser)
+      .then(async (me) => { setUser(me); await loadProfile(me); })
       .catch(async () => {
-        // Access expired — try refresh
         try {
           const { access: newAccess } = await refreshRequest(refresh);
           localStorage.setItem(ACCESS_KEY, newAccess);
           const me = await getMeRequest(newAccess);
           setUser(me);
+          await loadProfile(me);
         } catch {
           logout();
         }
       })
       .finally(() => setLoading(false));
-  }, [logout]);
+  }, [logout, loadProfile]);
 
   const login = async (username, password) => {
     const { access, refresh } = await loginRequest(username, password);
@@ -49,6 +69,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem(REFRESH_KEY, refresh);
     const me = await getMeRequest(access);
     setUser(me);
+    await loadProfile(me);
     return me;
   };
 
@@ -58,7 +79,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, register }}>
+    <AuthContext.Provider value={{ user, profile, loading, login, logout, register }}>
       {children}
     </AuthContext.Provider>
   );

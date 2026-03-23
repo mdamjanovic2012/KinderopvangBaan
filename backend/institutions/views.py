@@ -5,11 +5,12 @@ from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from .models import Institution, Review
-from .serializers import InstitutionSerializer, ReviewSerializer
+from .serializers import InstitutionSerializer, InstitutionPinSerializer, ReviewSerializer
 
 
 class InstitutionListView(generics.ListAPIView):
     serializer_class = InstitutionSerializer
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
     filterset_fields = ["institution_type", "city", "lrk_verified"]
     search_fields = ["name", "city", "postcode"]
@@ -20,6 +21,7 @@ class InstitutionListView(generics.ListAPIView):
 
 class InstitutionDetailView(generics.RetrieveAPIView):
     serializer_class = InstitutionSerializer
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
     queryset = Institution.objects.filter(is_active=True)
 
@@ -29,6 +31,7 @@ class NearbyInstitutionsView(APIView):
     GET /api/institutions/nearby/?lat=52.37&lng=4.89&radius=10&type=bso
     Returns institutions within `radius` km, ordered by distance.
     """
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -56,8 +59,32 @@ class NearbyInstitutionsView(APIView):
         return Response(serializer.data)
 
 
+class MapPinsView(APIView):
+    """
+    GET /api/institutions/map-pins/?type=bso
+    Slim endpoint — returns only id, name, institution_type, city, lrk_verified, location.
+    No pagination, no heavy fields. Used exclusively by the map component.
+    """
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        qs = Institution.objects.filter(is_active=True, location__isnull=False).only(
+            "id", "name", "institution_type", "city", "lrk_verified", "location"
+        )
+        institution_type = request.query_params.get("type")
+        if institution_type:
+            qs = qs.filter(institution_type=institution_type)
+        return Response(InstitutionPinSerializer(qs, many=True).data)
+
+
 class ReviewListView(generics.ListCreateAPIView):
     serializer_class = ReviewSerializer
+
+    def get_authenticators(self):
+        if self.request.method == "GET":
+            return []
+        return super().get_authenticators()
 
     def get_permissions(self):
         if self.request.method == "GET":

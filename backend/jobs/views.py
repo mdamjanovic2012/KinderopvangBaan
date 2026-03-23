@@ -14,6 +14,11 @@ class JobListCreateView(generics.ListCreateAPIView):
     filterset_fields = ["job_type", "contract_type", "city", "is_active"]
     search_fields = ["title", "description", "city"]
 
+    def get_authenticators(self):
+        if self.request.method == "GET":
+            return []
+        return super().get_authenticators()
+
     def get_permissions(self):
         if self.request.method == "GET":
             return [permissions.AllowAny()]
@@ -32,6 +37,7 @@ class JobListCreateView(generics.ListCreateAPIView):
 
 class JobDetailView(generics.RetrieveAPIView):
     serializer_class = JobSerializer
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
     queryset = Job.objects.filter(is_active=True)
 
@@ -40,6 +46,7 @@ class NearbyJobsView(APIView):
     """
     GET /api/jobs/nearby/?lat=52.37&lng=4.89&radius=15&type=bso
     """
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
