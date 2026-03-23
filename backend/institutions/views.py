@@ -59,8 +59,17 @@ class NearbyInstitutionsView(APIView):
 class ReviewListView(generics.ListCreateAPIView):
     serializer_class = ReviewSerializer
 
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
+
     def get_queryset(self):
-        return Review.objects.filter(institution_id=self.kwargs["pk"])
+        return Review.objects.filter(institution_id=self.kwargs["pk"]).order_by("-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user, institution_id=self.kwargs["pk"])
+        institution_id = self.kwargs["pk"]
+        if Review.objects.filter(institution_id=institution_id, author=self.request.user).exists():
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"non_field_errors": ["Je hebt deze instelling al beoordeeld."]})
+        serializer.save(author=self.request.user, institution_id=institution_id)

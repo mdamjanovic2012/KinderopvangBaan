@@ -24,6 +24,37 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class WorkerProfileSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source="user.username", read_only=True)
+    has_vog = serializers.BooleanField()
+    has_diploma = serializers.BooleanField()
+
     class Meta:
         model = WorkerProfile
-        exclude = ["user"]
+        exclude = ["user", "vog_verified", "diploma_verified", "is_premium"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class PublicWorkerSerializer(serializers.ModelSerializer):
+    """Public-facing worker profile — limited fields."""
+    username = serializers.CharField(source="user.username", read_only=True)
+    distance_km = serializers.SerializerMethodField()
+    available_days = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkerProfile
+        fields = [
+            "id", "username", "bio", "years_experience",
+            "has_vog", "has_diploma",
+            "service_types", "contract_types", "hourly_rate",
+            "city", "work_radius_km",
+            "is_available", "available_days", "distance_km",
+        ]
+
+    def get_distance_km(self, obj):
+        if hasattr(obj, "distance"):
+            return round(obj.distance.km, 2)
+        return None
+
+    def get_available_days(self, obj):
+        avail = obj.availability or {}
+        return avail.get("days", [])

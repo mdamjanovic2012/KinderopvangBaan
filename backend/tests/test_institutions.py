@@ -1,0 +1,250 @@
+"""
+Unit tests for the institutions app.
+Covers: models, serializers, all views (list, detail, nearby, reviews).
+"""
+import pytest
+from django.contrib.gis.geos import Point
+from django.urls import reverse
+from rest_framework import status
+from institutions.models import Institution, Review
+from institutions.serializers import InstitutionSerializer, ReviewSerializer
+
+
+# ---------------------------------------------------------------------------
+# Model tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestInstitutionModel:
+    def test_str(self, institution):
+        assert "Test BSO Amsterdam" in str(institution)
+
+    def test_default_is_active(self, db):
+        inst = Institution(
+            name="X",
+            institution_type="bso",
+            street="A",
+            house_number="1",
+            postcode="1000AA",
+            city="X",
+            location=Point(4.9, 52.3, srid=4326),
+        )
+        assert inst.is_active is True
+
+    def test_default_not_lrk_verified(self, db):
+        inst = Institution(
+            name="X",
+            institution_type="bso",
+            street="A",
+            house_number="1",
+            postcode="1000AA",
+            city="X",
+            location=Point(4.9, 52.3, srid=4326),
+        )
+        assert inst.lrk_verified is False
+
+    def test_institution_type_choices(self, institution):
+        valid = ["bso", "kdv", "gastouder", "peuterspeelzaal"]
+        assert institution.institution_type in valid
+
+    def test_lrk_number_unique(self, db, institution):
+        with pytest.raises(Exception):
+            Institution.objects.create(
+                name="Dupe",
+                institution_type="bso",
+                street="B",
+                house_number="2",
+                postcode="1000BB",
+                city="Amsterdam",
+                location=Point(4.9, 52.3, srid=4326),
+                lrk_number="TEST001",  # already used
+            )
+
+
+@pytest.mark.django_db
+class TestReviewModel:
+    def test_str(self, institution, worker_user):
+        review = Review.objects.create(
+            institution=institution,
+            author=worker_user,
+            rating=4,
+            text="Goed!",
+        )
+        assert "Test BSO Amsterdam" in str(review)
+        assert "4" in str(review)
+
+    def test_rating_range(self, institution, worker_user):
+        review = Review.objects.create(
+            institution=institution, author=worker_user, rating=5
+        )
+        assert 1 <= review.rating <= 5
+
+    def test_unique_per_user_institution(self, institution, worker_user):
+        Review.objects.create(institution=institution, author=worker_user, rating=3)
+        with pytest.raises(Exception):
+            Review.objects.create(institution=institution, author=worker_user, rating=4)
+
+
+# ---------------------------------------------------------------------------
+# Serializer tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestInstitutionSerializer:
+    def test_contains_expected_fields(self, institution):
+        data = InstitutionSerializer(institution).data
+        for field in ["id", "name", "institution_type", "city", "lrk_verified", "location"]:
+            assert field in data
+
+    def test_distance_km_none_without_annotation(self, institution):
+        data = InstitutionSerializer(institution).data
+        assert data["distance_km"] is None
+
+    def test_avg_rating_none_without_reviews(self, institution):
+        data = InstitutionSerializer(institution).data
+        assert data["avg_rating"] is None
+
+    def test_avg_rating_with_reviews(self, institution, worker_user, parent_user):
+        Review.objects.create(institution=institution, author=worker_user, rating=4)
+        Review.objects.create(institution=institution, author=parent_user, rating=2)
+        data = InstitutionSerializer(institution).data
+        assert data["avg_rating"] == 3.0
+
+
+# ---------------------------------------------------------------------------
+# View tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestInstitutionListView:
+    def test_list_returns_200(self, api_client, institution):
+        res = api_client.get("/api/institutions/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_list_contains_institution(self, api_client, institution):
+        res = api_client.get("/api/institutions/")
+        names = [i["name"] for i in res.data["results"]]
+        assert "Test BSO Amsterdam" in names
+
+    def test_inactive_excluded(self, api_client, institution):
+        institution.is_active = False
+        institution.save()
+        res = api_client.get("/api/institutions/")
+        names = [i["name"] for i in res.data["results"]]
+        assert "Test BSO Amsterdam" not in names
+
+    def test_filter_by_type(self, api_client, institution, institution_rotterdam):
+        res = api_client.get("/api/institutions/?institution_type=kdv")
+        names = [i["name"] for i in res.data["results"]]
+        assert "Test KDV Rotterdam" in names
+        assert "Test BSO Amsterdam" not in names
+
+    def test_filter_by_city(self, api_client, institution, institution_rotterdam):
+        res = api_client.get("/api/institutions/?city=Amsterdam")
+        names = [i["name"] for i in res.data["results"]]
+        assert "Test BSO Amsterdam" in names
+        assert "Test KDV Rotterdam" not in names
+
+    def test_no_auth_required(self, api_client, institution):
+        res = api_client.get("/api/institutions/")
+        assert res.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.django_db
+class TestInstitutionDetailView:
+    def test_detail_returns_200(self, api_client, institution):
+        res = api_client.get(f"/api/institutions/{institution.pk}/")
+        assert res.status_code == status.HTTP_200_OK
+        assert res.data["name"] == "Test BSO Amsterdam"
+
+    def test_detail_returns_404_for_missing(self, api_client):
+        res = api_client.get("/api/institutions/99999/")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_detail_returns_404_for_inactive(self, api_client, institution):
+        institution.is_active = False
+        institution.save()
+        res = api_client.get(f"/api/institutions/{institution.pk}/")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
+class TestNearbyInstitutionsView:
+    def test_returns_200_with_valid_params(self, api_client, institution):
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=5")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_finds_institution_within_radius(self, api_client, institution):
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=10")
+        names = [i["name"] for i in res.data]
+        assert "Test BSO Amsterdam" in names
+
+    def test_excludes_institution_outside_radius(self, api_client, institution, institution_rotterdam):
+        # Querying from Amsterdam with 5km radius — Rotterdam is ~70km away
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=5")
+        names = [i["name"] for i in res.data]
+        assert "Test KDV Rotterdam" not in names
+
+    def test_returns_distance_km(self, api_client, institution):
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=10")
+        for item in res.data:
+            if item["name"] == "Test BSO Amsterdam":
+                assert item["distance_km"] is not None
+
+    def test_filter_by_type(self, api_client, institution, institution_rotterdam):
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=200&type=kdv")
+        types = [i["institution_type"] for i in res.data]
+        assert all(t == "kdv" for t in types)
+
+    def test_missing_lat_returns_400(self, api_client):
+        res = api_client.get("/api/institutions/nearby/?lng=4.9041")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_missing_lng_returns_400(self, api_client):
+        res = api_client.get("/api/institutions/nearby/?lat=52.37")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_ordered_by_distance(self, api_client, institution, institution_rotterdam):
+        res = api_client.get("/api/institutions/nearby/?lat=52.3676&lng=4.9041&radius=200")
+        distances = [i["distance_km"] for i in res.data]
+        assert distances == sorted(distances)
+
+
+@pytest.mark.django_db
+class TestReviewViews:
+    def test_list_reviews_200(self, api_client, institution):
+        res = api_client.get(f"/api/institutions/{institution.pk}/reviews/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_create_review_requires_auth(self, api_client, institution):
+        res = api_client.post(
+            f"/api/institutions/{institution.pk}/reviews/",
+            {"rating": 4, "text": "Goed"},
+            format="json",
+        )
+        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_create_review_authenticated(self, auth_client, institution):
+        res = auth_client.post(
+            f"/api/institutions/{institution.pk}/reviews/",
+            {"rating": 5, "text": "Uitstekend!"},
+            format="json",
+        )
+        assert res.status_code == status.HTTP_201_CREATED
+        assert res.data["rating"] == 5
+
+    def test_review_appears_in_list(self, auth_client, institution, worker_user):
+        Review.objects.create(institution=institution, author=worker_user, rating=3, text="OK")
+        res = auth_client.get(f"/api/institutions/{institution.pk}/reviews/")
+        results = res.data.get("results", res.data)
+        assert len(results) == 1
+        assert results[0]["rating"] == 3
+
+    def test_duplicate_review_rejected(self, auth_client, institution, worker_user):
+        Review.objects.create(institution=institution, author=worker_user, rating=4)
+        res = auth_client.post(
+            f"/api/institutions/{institution.pk}/reviews/",
+            {"rating": 5},
+            format="json",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST

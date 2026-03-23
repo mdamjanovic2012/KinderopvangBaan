@@ -7,11 +7,14 @@ Usage:
     python manage.py geocode_institutions
     python manage.py geocode_institutions --limit 100
 """
+import logging
 import time
 import requests
 from django.core.management.base import BaseCommand
 from django.contrib.gis.geos import Point
 from institutions.models import Institution
+
+logger = logging.getLogger(__name__)
 
 PDOK_URL = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
 
@@ -37,8 +40,8 @@ def geocode_dutch_address(street, house_number, postcode, city):
         if centroid.startswith("POINT("):
             coords = centroid[6:-1].split()
             return float(coords[0]), float(coords[1])  # lng, lat
-    except Exception:
-        pass
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        logger.warning("Geocoding failed for query %r: %s", query, exc)
     return None
 
 

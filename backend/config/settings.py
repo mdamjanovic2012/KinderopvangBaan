@@ -114,6 +114,8 @@ CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS", "http://localhost:3000"
 ).split(",")
 
-# GeoDjango — explicit paths for macOS Homebrew
-GDAL_LIBRARY_PATH = "/opt/homebrew/lib/libgdal.dylib"
-GEOS_LIBRARY_PATH = "/opt/homebrew/lib/libgeos_c.dylib"
+# GeoDjango — explicit paths for macOS Homebrew (skipped on Linux/CI)
+import platform
+if platform.system() == "Darwin":
+    GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "/opt/homebrew/lib/libgdal.dylib")
+    GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "/opt/homebrew/lib/libgeos_c.dylib")

@@ -32,6 +32,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Coverage
+backend/.coverage
+backend/coverage.xml
+web/coverage/
+
 # Logs
 *.log
 npm-debug.log*

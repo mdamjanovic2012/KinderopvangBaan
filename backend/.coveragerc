@@ -1,0 +1,16 @@
+[run]
+omit =
+    */migrations/*
+    */management/commands/*
+    */tests/*
+    *tests.py
+    */apps.py
+    */admin.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    pass

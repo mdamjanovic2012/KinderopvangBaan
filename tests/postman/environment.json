@@ -1,0 +1,7 @@
+{
+  "id": "kinderopvangbaan-env",
+  "name": "KinderopvangBaan — CI",
+  "values": [
+    { "key": "BASE_URL", "value": "http://localhost:8000/api", "enabled": true, "type": "default" }
+  ]
+}

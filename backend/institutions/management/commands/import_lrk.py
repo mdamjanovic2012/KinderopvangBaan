@@ -14,11 +14,14 @@ Usage:
     python manage.py import_lrk --demo   # insert 10 demo institutions for testing
 """
 import csv
+import logging
 import time
 import requests
 from django.core.management.base import BaseCommand, CommandError
 from django.contrib.gis.geos import Point
 from institutions.models import Institution
+
+logger = logging.getLogger(__name__)
 
 PDOK_URL = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free"
 
@@ -62,8 +65,8 @@ def geocode(street, hn, postcode, city):
             if centroid.startswith("POINT("):
                 lng, lat = centroid[6:-1].split()
                 return Point(float(lng), float(lat), srid=4326)
-    except Exception:
-        pass
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        logger.warning("Geocoding failed for query %r: %s", query, exc)
     return None
 
 
