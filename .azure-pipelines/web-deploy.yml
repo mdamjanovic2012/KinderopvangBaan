@@ -246,6 +246,11 @@ stages:
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
+                      # Ensure Oryx doesn't rebuild the standalone output
+                      az webapp config appsettings set \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false
                       az webapp deploy \
                         --name $(AZURE_WEBAPP_NAME) \
                         --resource-group kinderopvangbaan-rg \
@@ -260,7 +265,7 @@ stages:
 
                 - script: |
                     echo "Verifying deployment..."
-                    sleep 15
+                    sleep 60
                     STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$(AZURE_WEBAPP_NAME).azurewebsites.net)
                     echo "HTTP status: $STATUS"
                     [ "$STATUS" = "200" ] || [ "$STATUS" = "307" ] || [ "$STATUS" = "308" ] && echo "Deployment OK" || exit 1
