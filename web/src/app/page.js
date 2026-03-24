@@ -16,7 +16,7 @@ export default function Home() {
           <span className="text-blue-700">kinderopvang</span>
         </h1>
         <p className="text-base sm:text-xl text-gray-500 max-w-2xl mb-10">
-          Het platform dat BSO's, KDV's en gastouderbureaus verbindt met
+          Het platform dat BSO&apos;s, KDV&apos;s en gastouderbureaus verbindt met
           pedagogisch medewerkers. Bekijk de interactieve kaart en ontdek
           vacatures bij jou in de buurt.
         </p>

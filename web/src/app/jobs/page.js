@@ -40,7 +40,7 @@ const CONTRACT_LABELS = {
 
 function JobCard({ job }) {
   const daysAgo = Math.floor(
-    (Date.now() - new Date(job.created_at)) / (1000 * 60 * 60 * 24)
+    (new Date() - new Date(job.created_at)) / (1000 * 60 * 60 * 24)
   );
 
   return (
