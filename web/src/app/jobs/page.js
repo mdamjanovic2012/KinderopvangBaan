@@ -171,9 +171,9 @@ export default function JobsPage() {
 
       {/* Filter bar */}
       <div className="bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3 flex-wrap">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Search */}
-          <form onSubmit={handleSearchSubmit} className="flex-1 min-w-48">
+          <form onSubmit={handleSearchSubmit} className="w-full sm:flex-1 sm:min-w-48">
             <input
               type="text"
               value={search}
@@ -186,7 +186,7 @@ export default function JobsPage() {
           <select
             value={filters.job_type}
             onChange={(e) => setFilters((f) => ({ ...f, job_type: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
             {JOB_TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -196,7 +196,7 @@ export default function JobsPage() {
           <select
             value={filters.contract_type}
             onChange={(e) => setFilters((f) => ({ ...f, contract_type: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
             {CONTRACT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -250,7 +250,7 @@ export default function JobsPage() {
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

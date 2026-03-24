@@ -102,7 +102,7 @@ export default function InstitutionDetailPage({ params }) {
     <div className="min-h-screen bg-gray-50">
       <Nav />
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
           <Link href="/map" className="hover:text-blue-700 transition-colors">Kaart</Link>
@@ -110,9 +110,9 @@ export default function InstitutionDetailPage({ params }) {
           <span className="text-gray-600">{institution.name}</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main content */}
-          <div className="col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6">
             {/* Header card */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-start justify-between mb-3">

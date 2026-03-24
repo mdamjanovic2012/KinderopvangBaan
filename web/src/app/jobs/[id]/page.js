@@ -68,7 +68,7 @@ export default function JobDetailPage({ params }) {
     <div className="min-h-screen bg-gray-50">
       <Nav />
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
           <Link href="/jobs" className="hover:text-blue-700 transition-colors">Vacatures</Link>
@@ -76,9 +76,9 @@ export default function JobDetailPage({ params }) {
           <span className="text-gray-600 truncate">{job.title}</span>
         </div>
 
-        <div className="grid grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main */}
-          <div className="col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-600">

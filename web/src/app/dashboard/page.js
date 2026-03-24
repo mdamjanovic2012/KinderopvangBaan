@@ -60,7 +60,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       <Nav />
 
-      <div className="max-w-3xl mx-auto px-6 py-12">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         {/* Greeting */}
         <div className="mb-10">
           <div className="flex items-center gap-4 mb-2">

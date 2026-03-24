@@ -137,6 +137,7 @@ export default function MapPage() {
   const [userLocation, setUserLocation] = useState(null);
   const [filters, setFilters] = useState({ type: "", radius: profileRadius ?? 10 });
   const [mode, setMode] = useState("all");
+  const [mobileView, setMobileView] = useState("map"); // "map" | "list"
 
   // Sync profile radius as default when profile loads (only if user hasn't changed it)
   useEffect(() => {
@@ -195,58 +196,59 @@ export default function MapPage() {
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white z-10 shadow-sm flex-wrap">
-        <Link href="/" className="text-lg font-bold text-blue-700 shrink-0">
-          KinderopvangBaan
-        </Link>
+      <div className="border-b border-gray-100 bg-white z-10 shadow-sm px-4 py-3 space-y-2">
+        {/* Row 1: Logo + GPS + count */}
+        <div className="flex items-center gap-2">
+          <Link href="/" className="text-base sm:text-lg font-bold text-blue-700 shrink-0">
+            KinderopvangBaan
+          </Link>
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <button
+              onClick={handleGeolocate}
+              title="Gebruik GPS-locatie"
+              className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-blue-800 transition-colors"
+            >
+              📍 <span className="hidden sm:inline">Mijn locatie</span><span className="sm:hidden">Locatie</span>
+            </button>
+            {mode === "nearby" && (
+              <button
+                onClick={() => { setMode("all"); setNearbyInstitutions([]); }}
+                className="text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                Alles
+              </button>
+            )}
+            <span className="text-sm text-gray-400">
+              {loading ? "…" : `${institutions.length}`}
+            </span>
+          </div>
+        </div>
 
-        {/* Address search */}
-        <AddressSearch onLocationSelect={handleAddressSelect} />
+        {/* Row 2: Search + filters */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <AddressSearch onLocationSelect={handleAddressSelect} />
 
-        {/* Type filter */}
-        <select
-          value={filters.type}
-          onChange={(e) => handleFilterChange("type", e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-        >
-          {TYPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-
-        {/* Radius filter */}
-        {mode === "nearby" && (
           <select
-            value={filters.radius}
-            onChange={(e) => handleFilterChange("radius", Number(e.target.value))}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            value={filters.type}
+            onChange={(e) => handleFilterChange("type", e.target.value)}
+            className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
-            {RADIUS_OPTIONS.map((r) => (
-              <option key={r} value={r}>{r} km</option>
+            {TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-        )}
 
-        {/* GPS button */}
-        <button
-          onClick={handleGeolocate}
-          title="Gebruik GPS-locatie"
-          className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:bg-blue-800 transition-colors shrink-0"
-        >
-          📍 Mijn locatie
-        </button>
-
-        {mode === "nearby" && (
-          <button
-            onClick={() => { setMode("all"); setNearbyInstitutions([]); }}
-            className="text-sm text-gray-500 hover:text-gray-700 underline shrink-0"
-          >
-            Alles tonen
-          </button>
-        )}
-
-        <div className="ml-auto text-sm text-gray-400 shrink-0">
-          {loading ? "Laden..." : `${institutions.length} locaties`}
+          {mode === "nearby" && (
+            <select
+              value={filters.radius}
+              onChange={(e) => handleFilterChange("radius", Number(e.target.value))}
+              className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              {RADIUS_OPTIONS.map((r) => (
+                <option key={r} value={r}>{r} km</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -259,7 +261,7 @@ export default function MapPage() {
               <span className="ml-1 text-blue-500">(jouw voorkeur)</span>
             )}
           </span>
-          <div className="flex items-center gap-1 ml-auto">
+          <div className="hidden sm:flex items-center gap-1 ml-auto">
             {RADIUS_OPTIONS.map((r) => (
               <button
                 key={r}
@@ -277,9 +279,25 @@ export default function MapPage() {
         </div>
       )}
 
+      {/* Mobile view toggle */}
+      <div className="sm:hidden flex border-b border-gray-100 bg-white">
+        <button
+          onClick={() => setMobileView("map")}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileView === "map" ? "text-blue-700 border-b-2 border-blue-700" : "text-gray-500"}`}
+        >
+          🗺️ Kaart
+        </button>
+        <button
+          onClick={() => setMobileView("list")}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileView === "list" ? "text-blue-700 border-b-2 border-blue-700" : "text-gray-500"}`}
+        >
+          📋 Lijst ({institutions.length})
+        </button>
+      </div>
+
       {/* Map + sidebar */}
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-80 shrink-0 overflow-y-auto border-r border-gray-100 bg-white">
+        <div className={`${mobileView === "list" ? "flex" : "hidden"} sm:flex w-full sm:w-80 shrink-0 overflow-y-auto border-r border-gray-100 bg-white flex-col`}>
           {institutions.length === 0 && !loading && (
             <div className="p-6 text-center text-gray-400 text-sm">
               Geen locaties gevonden.
@@ -310,7 +328,7 @@ export default function MapPage() {
           ))}
         </div>
 
-        <div className="flex-1 relative">
+        <div className={`${mobileView === "map" ? "flex" : "hidden"} sm:flex flex-1 relative`}>
           <InstitutionMap
             institutions={institutions}
             center={

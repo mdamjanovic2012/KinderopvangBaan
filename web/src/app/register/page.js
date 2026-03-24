@@ -76,7 +76,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <div className="px-8 py-5 border-b border-gray-100 bg-white">
+      <div className="px-4 sm:px-8 py-4 sm:py-5 border-b border-gray-100 bg-white">
         <Link href="/" className="text-xl font-bold text-blue-700">
           KinderopvangBaan<span className="text-gray-400 font-medium text-xs">.nl</span>
         </Link>

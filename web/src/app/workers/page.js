@@ -103,7 +103,7 @@ export default function WorkersPage() {
       <Nav />
 
       <div className="bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center gap-3 flex-wrap">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-2 sm:gap-3 flex-wrap">
           <span className="text-sm font-semibold text-gray-700">Medewerkers</span>
 
           {mode === "nearby" && (
@@ -137,7 +137,7 @@ export default function WorkersPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-4">
           <h1 className="text-xl font-bold text-gray-900">Beschikbare medewerkers</h1>
           <p className="text-sm text-gray-400 mt-0.5">
