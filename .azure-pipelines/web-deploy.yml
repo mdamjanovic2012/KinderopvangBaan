@@ -256,7 +256,7 @@ stages:
                         --resource-group kinderopvangbaan-rg \
                         --src-path "$(Pipeline.Workspace)/$(ARTIFACT_NAME)/web-$(VERSION).zip" \
                         --type zip \
-                        --async false
+                        --async true
                       az webapp config set \
                         --name $(AZURE_WEBAPP_NAME) \
                         --resource-group kinderopvangbaan-rg \
