@@ -145,6 +145,13 @@ stages:
             workingDirectory: web
             displayName: Package standalone output
 
+          - script: |
+              echo "=== Standalone directory contents ==="
+              ls -la web/.next/standalone/
+              echo "=== server.js check ==="
+              ls -la web/.next/standalone/server.js || echo "server.js NOT FOUND"
+            displayName: Debug standalone structure
+
           - task: ArchiveFiles@2
             inputs:
               rootFolderOrFile: web/.next/standalone
@@ -152,6 +159,11 @@ stages:
               archiveType: zip
               archiveFile: $(Build.ArtifactStagingDirectory)/web-$(VERSION).zip
             displayName: "Create artifact web-$(VERSION).zip"
+
+          - script: |
+              echo "=== Zip contents (top level) ==="
+              unzip -l $(Build.ArtifactStagingDirectory)/web-$(VERSION).zip | head -20
+            displayName: Debug zip contents
 
           - publish: $(Build.ArtifactStagingDirectory)/web-$(VERSION).zip
             artifact: $(ARTIFACT_NAME)
@@ -223,13 +235,27 @@ stages:
                   artifact: $(ARTIFACT_NAME)
                   displayName: Download artifact
 
-                - task: AzureWebApp@1
+                - script: |
+                    echo "=== Downloaded artifact contents ==="
+                    unzip -l $(Pipeline.Workspace)/$(ARTIFACT_NAME)/web-$(VERSION).zip | head -20
+                  displayName: Debug artifact before deploy
+
+                - task: AzureCLI@2
                   inputs:
                     azureSubscription: AzureServiceConnection
-                    appType: webAppLinux
-                    appName: $(AZURE_WEBAPP_NAME)
-                    package: $(Pipeline.Workspace)/$(ARTIFACT_NAME)/web-$(VERSION).zip
-                    startUpCommand: "node server.js"
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az webapp deploy \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --src-path "$(Pipeline.Workspace)/$(ARTIFACT_NAME)/web-$(VERSION).zip" \
+                        --type zip \
+                        --async false
+                      az webapp config set \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --startup-file "node server.js"
                   displayName: "Deploy v$(VERSION) to Azure"
 
                 - script: |
