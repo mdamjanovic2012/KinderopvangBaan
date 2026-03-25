@@ -10,7 +10,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "password", "role"]
+        fields = ["id", "username", "email", "password", "role", "first_name", "last_name"]
+        extra_kwargs = {
+            "first_name": {"required": False},
+            "last_name": {"required": False},
+        }
 
     def validate_role(self, value):
         allowed = {User.ROLE_WORKER, User.ROLE_INSTITUTION}
@@ -27,7 +31,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role", "phone", "avatar"]
+        fields = ["id", "username", "email", "role", "phone", "avatar", "first_name", "last_name"]
         read_only_fields = ["id"]
 
 

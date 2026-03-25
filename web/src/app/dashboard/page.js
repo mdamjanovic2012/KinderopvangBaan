@@ -65,11 +65,11 @@ export default function DashboardPage() {
         <div className="mb-10">
           <div className="flex items-center gap-4 mb-2">
             <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xl">
-              {user.username?.[0]?.toUpperCase()}
+              {(user.first_name || user.username)?.[0]?.toUpperCase()}
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
-                {config.title}, {user.username}!
+                {config.title}, {user.first_name || user.username}!
               </h1>
               <p className="text-sm text-gray-400">{config.subtitle}</p>
             </div>
@@ -100,6 +100,14 @@ export default function DashboardPage() {
         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-900 mb-4">Accountgegevens</h2>
           <div className="grid grid-cols-2 gap-4">
+            {(user.first_name || user.last_name) && (
+              <div className="col-span-2">
+                <div className="text-xs text-gray-400 mb-0.5">Naam</div>
+                <div className="text-sm font-medium text-gray-700">
+                  {[user.first_name, user.last_name].filter(Boolean).join(" ")}
+                </div>
+              </div>
+            )}
             <div>
               <div className="text-xs text-gray-400 mb-0.5">Gebruikersnaam</div>
               <div className="text-sm font-medium text-gray-700">{user.username}</div>
@@ -111,7 +119,7 @@ export default function DashboardPage() {
             <div>
               <div className="text-xs text-gray-400 mb-0.5">Accounttype</div>
               <div className="text-sm font-medium text-gray-700">
-                {user.role === "worker" ? "Pedagogisch medewerker" : user.role === "institution" ? "Instelling" : "Ouder"}
+                {user.role === "worker" ? "Pedagogisch medewerker" : user.role === "institution" ? "Instelling" : "—"}
               </div>
             </div>
           </div>

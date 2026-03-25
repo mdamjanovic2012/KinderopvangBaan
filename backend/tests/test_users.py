@@ -332,3 +332,52 @@ class TestWorkerListView:
         assert res.status_code == status.HTTP_200_OK
         usernames = [w["username"] for w in res.data]
         assert "testworker" in usernames
+
+
+# ---------------------------------------------------------------------------
+# first_name + last_name bij registratie en /me/ endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestFirstLastName:
+    def test_register_with_first_last_name(self, api_client):
+        res = api_client.post("/api/auth/register/", {
+            "username": "mikitest",
+            "email": "miki@test.nl",
+            "password": "TestPass123",
+            "role": "worker",
+            "first_name": "Miki",
+            "last_name": "Janssen",
+        }, format="json")
+        assert res.status_code == 201
+        assert res.data["first_name"] == "Miki"
+        assert res.data["last_name"] == "Janssen"
+
+    def test_register_without_name_still_works(self, api_client):
+        res = api_client.post("/api/auth/register/", {
+            "username": "naamloze",
+            "email": "naamloos@test.nl",
+            "password": "TestPass123",
+            "role": "worker",
+        }, format="json")
+        assert res.status_code == 201
+        assert res.data["first_name"] == ""
+        assert res.data["last_name"] == ""
+
+    def test_me_returns_first_last_name(self, auth_client, worker_user):
+        worker_user.first_name = "Anna"
+        worker_user.last_name = "de Vries"
+        worker_user.save()
+        res = auth_client.get("/api/auth/me/")
+        assert res.status_code == 200
+        assert res.data["first_name"] == "Anna"
+        assert res.data["last_name"] == "de Vries"
+
+    def test_me_patch_updates_first_last_name(self, auth_client, worker_user):
+        res = auth_client.patch("/api/auth/me/", {
+            "first_name": "Sofie",
+            "last_name": "Bakker",
+        }, format="json")
+        assert res.status_code == 200
+        assert res.data["first_name"] == "Sofie"
+        assert res.data["last_name"] == "Bakker"

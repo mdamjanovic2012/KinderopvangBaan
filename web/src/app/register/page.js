@@ -27,6 +27,8 @@ export default function RegisterPage() {
   const [step, setStep] = useState(1); // 1 = role, 2 = details
   const [form, setForm] = useState({
     role: "",
+    firstName: "",
+    lastName: "",
     username: "",
     email: "",
     password: "",
@@ -56,6 +58,8 @@ export default function RegisterPage() {
         email: form.email,
         password: form.password,
         role: form.role,
+        first_name: form.firstName,
+        last_name: form.lastName,
       });
       router.push("/dashboard");
     } catch (err) {
@@ -135,6 +139,36 @@ export default function RegisterPage() {
               <h2 className="text-lg font-bold text-gray-900 mb-6">Jouw gegevens</h2>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Voornaam
+                    </label>
+                    <input
+                      type="text"
+                      value={form.firstName}
+                      onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+                      autoFocus
+                      autoComplete="given-name"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                      placeholder="Jouw voornaam"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Achternaam
+                    </label>
+                    <input
+                      type="text"
+                      value={form.lastName}
+                      onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+                      autoComplete="family-name"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                      placeholder="Achternaam"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">
                     Gebruikersnaam
@@ -144,7 +178,6 @@ export default function RegisterPage() {
                     value={form.username}
                     onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                     required
-                    autoFocus
                     autoComplete="username"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
                     placeholder="jouwgebruikersnaam"
