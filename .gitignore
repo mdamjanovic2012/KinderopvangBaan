@@ -1,4 +1,5 @@
 # Python / Django
+backend/config/config_local.py
 __pycache__/
 *.py[cod]
 *.pyo
