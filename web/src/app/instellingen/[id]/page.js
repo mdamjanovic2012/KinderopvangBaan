@@ -247,6 +247,55 @@ export default function InstitutionDetailPage({ params }) {
               </div>
             )}
 
+            {/* Organisatiestructuur (moeder-dochter) */}
+            {(institution.parent_info || (institution.locations && institution.locations.length > 0)) && (
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                {institution.parent_info && (
+                  <div className="mb-4 flex items-center gap-2 text-sm text-gray-500">
+                    <span>Onderdeel van</span>
+                    <Link
+                      href={`/instellingen/${institution.parent_info.id}`}
+                      className="font-semibold text-blue-700 hover:underline"
+                    >
+                      {institution.parent_info.naam_houder || institution.parent_info.name}
+                    </Link>
+                  </div>
+                )}
+
+                {institution.locations && institution.locations.length > 0 && (
+                  <>
+                    <h2 className="text-sm font-semibold text-gray-900 mb-3">
+                      {institution.parent_info ? "Andere locaties" : "Locaties"}{" "}
+                      <span className="text-gray-400 font-normal">({institution.locations.length})</span>
+                    </h2>
+                    <div className="space-y-2">
+                      {institution.locations.map((loc) => (
+                        <Link
+                          key={loc.id}
+                          href={`/instellingen/${loc.id}`}
+                          className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors group"
+                        >
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 group-hover:text-blue-700 transition-colors">
+                              {loc.name}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {loc.city} · {TYPE_LABELS[loc.institution_type] || loc.institution_type}
+                            </div>
+                          </div>
+                          {loc.active_job_count > 0 && (
+                            <span className="shrink-0 ml-3 text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                              {loc.active_job_count} vacature{loc.active_job_count !== 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </Link>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Reviews */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <h2 className="text-sm font-semibold text-gray-900 mb-4">

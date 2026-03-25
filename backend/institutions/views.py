@@ -5,7 +5,7 @@ from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 from .models import Institution, Review
-from .serializers import InstitutionSerializer, InstitutionPinSerializer, ReviewSerializer
+from .serializers import InstitutionSerializer, InstitutionDetailSerializer, InstitutionPinSerializer, ReviewSerializer
 
 
 class InstitutionListView(generics.ListAPIView):
@@ -20,10 +20,10 @@ class InstitutionListView(generics.ListAPIView):
 
 
 class InstitutionDetailView(generics.RetrieveAPIView):
-    serializer_class = InstitutionSerializer
+    serializer_class = InstitutionDetailSerializer
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
-    queryset = Institution.objects.filter(is_active=True)
+    queryset = Institution.objects.filter(is_active=True).select_related("parent").prefetch_related("children", "reviews")
 
 
 class NearbyInstitutionsView(APIView):

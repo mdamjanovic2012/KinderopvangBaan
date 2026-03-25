@@ -286,3 +286,113 @@ class TestMapPinsView:
         pin = next(i for i in res.data if i["name"] == "Test BSO Amsterdam")
         for field in ["id", "name", "institution_type", "city", "lrk_verified", "location"]:
             assert field in pin
+
+
+# ---------------------------------------------------------------------------
+# InstitutionDetailSerializer — moeder-dochter structuur
+# ---------------------------------------------------------------------------
+
+def make_inst(name, lrk, **kwargs):
+    from django.contrib.gis.geos import Point
+    return Institution.objects.create(
+        name=name,
+        institution_type="bso",
+        street="Straat",
+        house_number="1",
+        postcode="1000AA",
+        city="Amsterdam",
+        location=Point(4.9, 52.3, srid=4326),
+        lrk_number=lrk,
+        **kwargs,
+    )
+
+
+@pytest.mark.django_db
+class TestInstitutionDetailSerializer:
+    def test_parent_info_none_when_no_parent(self):
+        from institutions.serializers import InstitutionDetailSerializer
+        inst = make_inst("Solo BSO", "LRK-SOLO")
+        data = InstitutionDetailSerializer(inst).data
+        assert data["parent_info"] is None
+
+    def test_parent_info_populated_for_child(self):
+        from institutions.serializers import InstitutionDetailSerializer
+        parent = make_inst("Gro-up Hoofd", "LRK-PH", naam_houder="Gro-up", kvk_nummer_houder="12345678")
+        child = make_inst("Gro-up Noord", "LRK-PN", naam_houder="Gro-up", kvk_nummer_houder="12345678")
+        child.parent = parent
+        child.save()
+        data = InstitutionDetailSerializer(child).data
+        assert data["parent_info"]["id"] == parent.id
+        assert data["parent_info"]["name"] == parent.name
+
+    def test_locations_empty_when_standalone(self):
+        from institutions.serializers import InstitutionDetailSerializer
+        inst = make_inst("Enige BSO", "LRK-ENIG")
+        data = InstitutionDetailSerializer(inst).data
+        assert data["locations"] == []
+
+    def test_locations_shows_siblings_for_child(self):
+        from institutions.serializers import InstitutionDetailSerializer
+        parent = make_inst("Org Hoofd", "LRK-OH2", naam_houder="Org", kvk_nummer_houder="22223333")
+        child1 = make_inst("Org Noord", "LRK-ON2", naam_houder="Org", kvk_nummer_houder="22223333")
+        child2 = make_inst("Org Zuid", "LRK-OZ2", naam_houder="Org", kvk_nummer_houder="22223333")
+        child1.parent = parent
+        child1.save()
+        child2.parent = parent
+        child2.save()
+        data = InstitutionDetailSerializer(child1).data
+        location_ids = [loc["id"] for loc in data["locations"]]
+        assert child2.id in location_ids
+        assert child1.id not in location_ids  # zichzelf niet tonen
+
+    def test_locations_shows_children_for_parent(self):
+        from institutions.serializers import InstitutionDetailSerializer
+        parent = make_inst("Keten Hoofd", "LRK-KH", naam_houder="Keten", kvk_nummer_houder="44445555")
+        child = make_inst("Keten BSO", "LRK-KB", naam_houder="Keten", kvk_nummer_houder="44445555")
+        child.parent = parent
+        child.save()
+        data = InstitutionDetailSerializer(parent).data
+        location_ids = [loc["id"] for loc in data["locations"]]
+        assert child.id in location_ids
+
+    def test_locations_active_job_count(self, db):
+        from institutions.serializers import InstitutionDetailSerializer
+        from jobs.models import Job
+        from users.models import User
+        parent = make_inst("Org Met Jobs", "LRK-MJ", naam_houder="Org", kvk_nummer_houder="66667777")
+        child = make_inst("Locatie A", "LRK-LA", naam_houder="Org", kvk_nummer_houder="66667777")
+        child.parent = parent
+        child.save()
+        user = User.objects.create_user(username="poster_test99", password="x", role="institution")
+        Job.objects.create(
+            institution=child,
+            posted_by=user,
+            title="PM",
+            job_type="bso",
+            contract_type="fulltime",
+            description="test",
+            city="Amsterdam",
+            is_active=True,
+        )
+        data = InstitutionDetailSerializer(parent).data
+        loc = next(l for l in data["locations"] if l["id"] == child.id)
+        assert loc["active_job_count"] == 1
+
+    def test_detail_view_returns_parent_info(self, api_client):
+        parent = make_inst("View Hoofd", "LRK-VH")
+        child = make_inst("View Kind", "LRK-VK")
+        child.parent = parent
+        child.save()
+        res = api_client.get(f"/api/institutions/{child.pk}/")
+        assert res.status_code == 200
+        assert res.data["parent_info"]["id"] == parent.id
+
+    def test_detail_view_returns_locations(self, api_client):
+        parent = make_inst("Groep A", "LRK-GA")
+        child = make_inst("Locatie A1", "LRK-A1")
+        child.parent = parent
+        child.save()
+        res = api_client.get(f"/api/institutions/{parent.pk}/")
+        assert res.status_code == 200
+        location_ids = [l["id"] for l in res.data["locations"]]
+        assert child.id in location_ids

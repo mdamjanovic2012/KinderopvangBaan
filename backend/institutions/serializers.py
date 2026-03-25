@@ -52,6 +52,51 @@ class InstitutionPinSerializer(serializers.ModelSerializer):
         return {"type": "Point", "coordinates": [obj.location.x, obj.location.y]}
 
 
+class InstitutionDetailSerializer(InstitutionSerializer):
+    """
+    Uitgebreide serializer voor de detailpagina — bevat moeder-dochter structuur.
+    """
+    parent_info = serializers.SerializerMethodField()
+    locations = serializers.SerializerMethodField()
+
+    class Meta(InstitutionSerializer.Meta):
+        fields = InstitutionSerializer.Meta.fields + ["parent_info", "locations"]
+
+    def get_parent_info(self, obj):
+        if not obj.parent_id:
+            return None
+        parent = obj.parent
+        return {
+            "id": parent.id,
+            "name": parent.name,
+            "naam_houder": parent.naam_houder,
+            "city": parent.city,
+            "institution_type": parent.institution_type,
+        }
+
+    def get_locations(self, obj):
+        """
+        Als deze instelling een kind is → geef alle locaties van de moeder terug.
+        Als deze instelling een moeder is → geef alle kinderen terug.
+        """
+        if obj.parent_id:
+            sibling_qs = obj.parent.children.exclude(pk=obj.pk).filter(is_active=True)
+        else:
+            sibling_qs = obj.children.filter(is_active=True)
+
+        result = []
+        for loc in sibling_qs.prefetch_related("jobs"):
+            active_jobs = loc.jobs.filter(is_active=True).count()
+            result.append({
+                "id": loc.id,
+                "name": loc.name,
+                "city": loc.city,
+                "institution_type": loc.institution_type,
+                "active_job_count": active_jobs,
+            })
+        return result
+
+
 class ReviewSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source="author.username", read_only=True)
 
