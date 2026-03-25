@@ -326,3 +326,9 @@ class TestWorkerListView:
     def test_no_auth_required(self, api_client, worker_profile):
         res = api_client.get("/api/users/workers/")
         assert res.status_code == status.HTTP_200_OK
+
+    def test_invalid_lat_lng_ignored_returns_all(self, api_client, worker_profile):
+        res = api_client.get("/api/users/workers/?lat=notanumber&lng=alsonotanumber")
+        assert res.status_code == status.HTTP_200_OK
+        usernames = [w["username"] for w in res.data]
+        assert "testworker" in usernames

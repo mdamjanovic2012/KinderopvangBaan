@@ -248,3 +248,41 @@ class TestReviewViews:
             format="json",
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: serializer location=None paths + MapPinsView
+# ---------------------------------------------------------------------------
+
+class TestInstitutionSerializerLocationNone:
+    def test_get_location_returns_none_when_no_location(self):
+        from unittest.mock import MagicMock
+        from institutions.serializers import InstitutionSerializer, InstitutionPinSerializer
+        obj = MagicMock()
+        obj.location = None
+        obj.reviews.all.return_value = []
+        assert InstitutionSerializer().get_location(obj) is None
+        assert InstitutionPinSerializer().get_location(obj) is None
+
+
+@pytest.mark.django_db
+class TestMapPinsView:
+    def test_returns_200(self, api_client, institution):
+        res = api_client.get("/api/institutions/map-pins/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_returns_institutions_with_location(self, api_client, institution):
+        res = api_client.get("/api/institutions/map-pins/")
+        names = [i["name"] for i in res.data]
+        assert "Test BSO Amsterdam" in names
+
+    def test_filter_by_type(self, api_client, institution, institution_rotterdam):
+        res = api_client.get("/api/institutions/map-pins/?type=bso")
+        types = [i["institution_type"] for i in res.data]
+        assert all(t == "bso" for t in types)
+
+    def test_pin_fields(self, api_client, institution):
+        res = api_client.get("/api/institutions/map-pins/")
+        pin = next(i for i in res.data if i["name"] == "Test BSO Amsterdam")
+        for field in ["id", "name", "institution_type", "city", "lrk_verified", "location"]:
+            assert field in pin
