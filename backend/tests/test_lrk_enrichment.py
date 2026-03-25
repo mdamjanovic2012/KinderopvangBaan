@@ -4,11 +4,16 @@ Tests for LRK enrichment management command and parent-child structure.
 import csv
 import io
 import pytest
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 from django.contrib.gis.geos import Point
 from django.core.management import call_command
 
 from institutions.models import Institution
+from institutions.management.commands import enrich_from_lrk as lrk_module  # noqa: F401 (used via patch)
+from institutions.management.commands.enrich_from_lrk import Command as EnrichCommand
 
 
 def make_institution(db, name, lrk_number, kvk="", naam_houder="", **kwargs):
@@ -89,9 +94,12 @@ class TestInstitutionNewFields:
 @pytest.mark.django_db
 class TestEnrichFromLrk:
     def _run(self, csv_content, **kwargs):
+        kwargs.setdefault("force", True)
         with patch(
             "institutions.management.commands.enrich_from_lrk.Command._load_csv",
             return_value=self._parse(csv_content),
+        ), patch(
+            "institutions.management.commands.enrich_from_lrk.Command._write_timestamp"
         ):
             call_command("enrich_from_lrk", **kwargs)
 
@@ -194,3 +202,53 @@ class TestParentChildLinking:
         cmd._link_parents(dry_run=True)
         child.refresh_from_db()
         assert child.parent is None
+
+
+# ---------------------------------------------------------------------------
+# Timestamp: skip / force logic
+# ---------------------------------------------------------------------------
+
+class TestTimestamp:
+    def _cmd(self, ts_file):
+        cmd = EnrichCommand()
+        cmd.stdout = MagicMock()
+        cmd.stderr = MagicMock()
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            return cmd
+
+    def test_should_skip_when_recent_timestamp(self, tmp_path):
+        ts_file = Path(tmp_path) / ".lrk_last_run"
+        ts_file.write_text(datetime.now().isoformat())
+        cmd = self._cmd(ts_file)
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            assert cmd._should_skip() is True
+
+    def test_should_not_skip_when_old_timestamp(self, tmp_path):
+        ts_file = Path(tmp_path) / ".lrk_last_run"
+        old = datetime.now() - timedelta(days=31)
+        ts_file.write_text(old.isoformat())
+        cmd = self._cmd(ts_file)
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            assert cmd._should_skip() is False
+
+    def test_should_not_skip_when_no_file(self, tmp_path):
+        ts_file = Path(tmp_path) / ".lrk_last_run"
+        cmd = self._cmd(ts_file)
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            assert cmd._should_skip() is False
+
+    def test_write_timestamp_creates_file(self, tmp_path):
+        ts_file = Path(tmp_path) / ".lrk_last_run"
+        cmd = self._cmd(ts_file)
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            cmd._write_timestamp()
+        assert ts_file.exists()
+        dt = datetime.fromisoformat(ts_file.read_text().strip())
+        assert datetime.now() - dt < timedelta(seconds=5)
+
+    def test_should_skip_with_corrupt_file(self, tmp_path):
+        ts_file = Path(tmp_path) / ".lrk_last_run"
+        ts_file.write_text("not-a-date")
+        cmd = self._cmd(ts_file)
+        with patch("institutions.management.commands.enrich_from_lrk._DEFAULT_TIMESTAMP_FILE", ts_file):
+            assert cmd._should_skip() is False

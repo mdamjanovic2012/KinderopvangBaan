@@ -6,21 +6,37 @@ Downloads the public LRK CSV and enriches existing Institution records with:
   - phone, email, website (only if currently empty)
   - parent FK (moeder-dochter) based on kvk_nummer_houder
 
+SAFE: only UPDATEs existing records, never deletes or drops data.
+Runs at most once per 30 days (timestamp stored in LRK_TIMESTAMP_FILE).
+
 Usage:
-    python manage.py enrich_from_lrk
-    python manage.py enrich_from_lrk --dry-run
+    python manage.py enrich_from_lrk              # skip if < 30 days
+    python manage.py enrich_from_lrk --force      # run regardless
+    python manage.py enrich_from_lrk --dry-run    # show changes, don't save
     python manage.py enrich_from_lrk --csv /path/to/local.csv
 """
 
 import csv
 import io
+import os
 import urllib.request
 from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from institutions.models import Institution
+
+# Timestamp file — persists across deploys on Azure (/home/ is persistent)
+_DEFAULT_TIMESTAMP_FILE = Path(
+    os.environ.get("LRK_TIMESTAMP_FILE", "/home/.lrk_last_run")
+    if not settings.LOCAL
+    else str(Path(settings.BASE_DIR) / ".lrk_last_run")
+)
+ENRICH_INTERVAL_DAYS = 30
 
 LRK_CSV_URL = "https://www.landelijkregisterkinderopvang.nl/opendata/export_opendata_lrk.csv"
 
@@ -50,13 +66,25 @@ class Command(BaseCommand):
             help="Show what would change without saving."
         )
         parser.add_argument(
+            "--force", action="store_true",
+            help="Run even if last enrichment was less than 30 days ago."
+        )
+        parser.add_argument(
             "--csv", dest="csv_path", default=None,
             help="Path to a local CSV file instead of downloading."
         )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
+        force = options["force"]
         csv_path = options["csv_path"]
+
+        if not force and not dry_run and self._should_skip():
+            self.stdout.write(self.style.WARNING(
+                f"Skipping: last enrichment was less than {ENRICH_INTERVAL_DAYS} days ago. "
+                "Use --force to override."
+            ))
+            return
 
         self.stdout.write("Loading LRK CSV…")
         rows = self._load_csv(csv_path)
@@ -128,6 +156,7 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes saved."))
         else:
+            self._write_timestamp()
             self.stdout.write(self.style.SUCCESS("Done."))
 
     def _load_csv(self, csv_path):
@@ -145,6 +174,24 @@ class Command(BaseCommand):
             {k.strip().lower(): v for k, v in row.items()}
             for row in reader
         ]
+
+    def _should_skip(self):
+        ts_file = _DEFAULT_TIMESTAMP_FILE
+        if not ts_file.exists():
+            return False
+        try:
+            last_run = datetime.fromisoformat(ts_file.read_text().strip())
+            return datetime.now() - last_run < timedelta(days=ENRICH_INTERVAL_DAYS)
+        except (ValueError, OSError):
+            return False
+
+    def _write_timestamp(self):
+        ts_file = _DEFAULT_TIMESTAMP_FILE
+        try:
+            ts_file.parent.mkdir(parents=True, exist_ok=True)
+            ts_file.write_text(datetime.now().isoformat())
+        except OSError as e:
+            self.stderr.write(f"Warning: could not write timestamp file: {e}")
 
     def _link_parents(self, dry_run):
         """
