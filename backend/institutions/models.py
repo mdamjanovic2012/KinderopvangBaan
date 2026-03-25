@@ -42,6 +42,20 @@ class Institution(models.Model):
     # LRK registration (Landelijk Register Kinderopvang)
     lrk_number = models.CharField(max_length=50, blank=True, unique=True, null=True)
     lrk_verified = models.BooleanField(default=False)
+    lrk_url = models.URLField(blank=True)
+
+    # Houder / parent organisation (from LRK)
+    kvk_nummer_houder = models.CharField(max_length=20, blank=True)
+    naam_houder = models.CharField(max_length=255, blank=True)
+    gemeente = models.CharField(max_length=100, blank=True)
+
+    # Parent-child structure (moeder-dochter)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="children",
+    )
 
     # Linked account (if institution manages their own profile)
     owner = models.ForeignKey(
