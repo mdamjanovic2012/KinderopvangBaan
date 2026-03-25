@@ -5,6 +5,19 @@ Format: `## [datum] — korte omschrijving`
 
 ---
 
+## [2026-03-25] — Algemene voorwaarden pagina
+
+### Toegevoegd
+- **`/voorwaarden`** pagina met 6 secties:
+  1. Disclaimer — platform is niet aansprakelijk, vacatures zijn van instellingen zelf
+  2. Selectieproces bij de instelling — werving/selectie volledig bij instelling
+  3. VOG en diploma — verificatie is plicht en verantwoordelijkheid van de instelling
+  4. Privacy en persoonsgegevens — AVG-conformiteit, adres niet gedeeld
+  5. Gratis gebruik — platform gratis, optionele premium listing
+  6. Toepasselijk recht — Nederlands recht
+
+---
+
 ## [2026-03-25] — Vacature plaatsen uitgebreid + zoekfilters verbeterd
 
 ### Toegevoegd
