@@ -11,7 +11,7 @@ def health(request):
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("pivce-za-zivce/", admin.site.urls),
     path("api/health/", health, name="health"),
 
     # Auth

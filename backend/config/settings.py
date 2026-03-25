@@ -5,6 +5,12 @@ import os
 
 load_dotenv()
 
+try:
+    from config.config_local import *
+    LOCAL = True
+except ImportError:
+    LOCAL = False
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me")
@@ -12,6 +18,8 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 INSTALLED_APPS = [
+    "unfold",
+    "unfold.contrib.filters",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -106,6 +114,97 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ---------------------------------------------------------------------------
+# django-unfold — owner dashboard at /pivce-za-zivce
+# ---------------------------------------------------------------------------
+from django.urls import reverse_lazy
+
+UNFOLD = {
+    "SITE_TITLE": "KinderopvangBaan Beheer",
+    "SITE_HEADER": "KinderopvangBaan",
+    "SITE_URL": "/",
+    "SITE_ICON": None,
+    "SITE_SYMBOL": "work",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "COLORS": {
+        "primary": {
+            "50": "240 249 255",
+            "100": "224 242 254",
+            "200": "186 230 253",
+            "300": "125 211 252",
+            "400": "56 189 248",
+            "500": "14 165 233",
+            "600": "2 132 199",
+            "700": "3 105 161",
+            "800": "7 89 133",
+            "900": "12 74 110",
+            "950": "8 47 73",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": "Overzicht",
+                "items": [
+                    {
+                        "title": "Dashboard",
+                        "icon": "dashboard",
+                        "link": reverse_lazy("admin:index"),
+                    },
+                ],
+            },
+            {
+                "title": "Organisaties",
+                "items": [
+                    {
+                        "title": "Alle organisaties",
+                        "icon": "business",
+                        "link": reverse_lazy("admin:institutions_institution_changelist"),
+                    },
+                    {
+                        "title": "Reviews",
+                        "icon": "star",
+                        "link": reverse_lazy("admin:institutions_review_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Vacatures",
+                "items": [
+                    {
+                        "title": "Alle vacatures",
+                        "icon": "work",
+                        "link": reverse_lazy("admin:jobs_job_changelist"),
+                    },
+                    {
+                        "title": "Sollicitaties",
+                        "icon": "send",
+                        "link": reverse_lazy("admin:jobs_jobapplication_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": "Gebruikers",
+                "items": [
+                    {
+                        "title": "Alle gebruikers",
+                        "icon": "people",
+                        "link": reverse_lazy("admin:users_user_changelist"),
+                    },
+                    {
+                        "title": "Werkzoekende profielen",
+                        "icon": "person_search",
+                        "link": reverse_lazy("admin:users_workerprofile_changelist"),
+                    },
+                ],
+            },
+        ],
+    },
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
