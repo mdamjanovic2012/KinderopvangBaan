@@ -15,6 +15,7 @@ class JobSerializer(serializers.ModelSerializer):
             "city", "location",
             "salary_min", "salary_max", "hours_per_week",
             "requires_vog", "requires_diploma",
+            "requires_bevoegdheid", "min_experience",
             "is_premium", "created_at", "expires_at",
             "distance_km",
         ]

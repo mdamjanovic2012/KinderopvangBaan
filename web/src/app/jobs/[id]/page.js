@@ -8,6 +8,12 @@ import Nav from "@/components/Nav";
 import { useAuth } from "@/context/AuthContext";
 import { getCaoLabel } from "@/lib/caoFunctions";
 
+const BEVOEGDHEID_LABELS = {
+  dagopvang: "Dagopvang",
+  bso: "BSO",
+  peuterspeelzaal: "Peuterspeelzaal",
+};
+
 const CONTRACT_LABELS = {
   fulltime: "Full-time",
   parttime: "Part-time",
@@ -125,6 +131,22 @@ export default function JobDetailPage({ params }) {
                     Diploma {job.requires_diploma ? "vereist" : "niet vereist"}
                   </span>
                 </div>
+                {job.requires_bevoegdheid?.length > 0 && (
+                  <div className="flex items-start gap-2">
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs bg-blue-100 text-blue-600 mt-0.5 shrink-0">✓</span>
+                    <span className="text-sm text-gray-600">
+                      Bevoegdheid vereist: {job.requires_bevoegdheid.map((v) => BEVOEGDHEID_LABELS[v] || v).join(", ")}
+                    </span>
+                  </div>
+                )}
+                {job.min_experience > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs bg-blue-100 text-blue-600 shrink-0">✓</span>
+                    <span className="text-sm text-gray-600">
+                      Minimaal {job.min_experience} jaar werkervaring
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -366,3 +366,52 @@ class TestWorkerProfileCaoFunction:
         res = auth_client.get("/api/auth/worker-profile/")
         assert res.status_code == 200
         assert res.data["cao_function"] == "bso_begeleider"
+
+
+# ---------------------------------------------------------------------------
+# Nieuwe vereistenvelden op Job: requires_bevoegdheid + min_experience
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestJobRequirementsFields:
+    def test_default_requires_bevoegdheid_empty(self, job):
+        assert job.requires_bevoegdheid == []
+
+    def test_default_min_experience_none(self, job):
+        assert job.min_experience is None
+
+    def test_create_with_requires_bevoegdheid(self, institution_client, institution):
+        res = institution_client.post("/api/jobs/", {
+            "institution": institution.pk,
+            "title": "BSO medewerker met bevoegdheid",
+            "job_type": "bso_begeleider",
+            "contract_type": "parttime",
+            "description": "Test",
+            "requires_bevoegdheid": ["bso", "dagopvang"],
+        }, format="json")
+        assert res.status_code == 201
+        assert res.data["requires_bevoegdheid"] == ["bso", "dagopvang"]
+
+    def test_create_with_min_experience(self, institution_client, institution):
+        res = institution_client.post("/api/jobs/", {
+            "institution": institution.pk,
+            "title": "Senior PM",
+            "job_type": "senior_pm",
+            "contract_type": "fulltime",
+            "description": "Test",
+            "min_experience": 3,
+        }, format="json")
+        assert res.status_code == 201
+        assert res.data["min_experience"] == 3
+
+    def test_requires_bevoegdheid_in_serializer(self, job):
+        job.requires_bevoegdheid = ["peuterspeelzaal"]
+        job.save()
+        data = JobSerializer(job).data
+        assert data["requires_bevoegdheid"] == ["peuterspeelzaal"]
+
+    def test_min_experience_in_serializer(self, job):
+        job.min_experience = 2
+        job.save()
+        data = JobSerializer(job).data
+        assert data["min_experience"] == 2

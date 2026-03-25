@@ -5,6 +5,19 @@ Format: `## [datum] — korte omschrijving`
 
 ---
 
+## [2026-03-25] — Vacature plaatsen uitgebreid + zoekfilters verbeterd
+
+### Toegevoegd
+- **Vacature plaatsen**: gestructureerde vereistenvelden
+  - Bevoegdheid checkboxes: Dagopvang / BSO / Peuterspeelzaal
+  - Minimale werkervaring (jaren)
+  - Diploma vereist checkbox
+  - VOG vereist verwijderd uit formulier (instelling checkt zelf)
+- `Job.requires_bevoegdheid` (JSONField) + `Job.min_experience` (PositiveSmallIntegerField)
+- Vacaturedetailpagina toont bevoegdheid-vereiste en minimum ervaring
+
+---
+
 ## [2026-03-25] — Zoekfilters vacatures + kaart verwijderd uit werkzoekende dashboard
 
 ### Toegevoegd

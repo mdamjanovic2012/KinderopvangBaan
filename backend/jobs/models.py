@@ -41,6 +41,9 @@ class Job(models.Model):
     # Requirements
     requires_vog = models.BooleanField(default=True)
     requires_diploma = models.BooleanField(default=False)
+    # e.g. ["dagopvang", "bso", "peuterspeelzaal"]
+    requires_bevoegdheid = models.JSONField(default=list, blank=True)
+    min_experience = models.PositiveSmallIntegerField(null=True, blank=True)
 
     is_active = models.BooleanField(default=True)
     is_premium = models.BooleanField(default=False)  # paid listing

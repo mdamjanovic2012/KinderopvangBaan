@@ -45,6 +45,12 @@ const CONTRACT_TYPES = [
   { value: "temp", label: "Tijdelijk" },
 ];
 
+const BEVOEGDHEID_OPTIONS = [
+  { value: "dagopvang", label: "Dagopvang" },
+  { value: "bso", label: "BSO" },
+  { value: "peuterspeelzaal", label: "Peuterspeelzaal" },
+];
+
 const EMPTY_FORM = {
   title: "",
   job_type: "pm3",
@@ -53,7 +59,8 @@ const EMPTY_FORM = {
   salary_min: "",
   salary_max: "",
   hours_per_week: "",
-  requires_vog: true,
+  min_experience: "",
+  requires_bevoegdheid: [],
   requires_diploma: false,
   institution: "",
 };
@@ -96,6 +103,7 @@ export default function NewVacaturePage() {
         salary_min: form.salary_min !== "" ? Number(form.salary_min) : null,
         salary_max: form.salary_max !== "" ? Number(form.salary_max) : null,
         hours_per_week: form.hours_per_week !== "" ? Number(form.hours_per_week) : null,
+        min_experience: form.min_experience !== "" ? Number(form.min_experience) : null,
         institution: Number(form.institution),
       };
       const job = await authPost("/jobs/", payload);
@@ -238,27 +246,71 @@ export default function NewVacaturePage() {
           </div>
 
           {/* Vereisten */}
-          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-3">
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm space-y-4">
             <h2 className="text-sm font-semibold text-gray-900">Vereisten</h2>
-            {[
-              { key: "requires_vog", label: "VOG vereist", desc: "Verklaring Omtrent Gedrag" },
-              { key: "requires_diploma", label: "Diploma vereist", desc: "SPW / Pedagogisch Werker 3+" },
-            ].map(({ key, label, desc }) => (
-              <label key={key} className="flex items-center gap-3 cursor-pointer">
-                <div
-                  onClick={() => set(key, !form[key])}
-                  className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-colors flex-shrink-0 ${
-                    form[key] ? "bg-blue-700 border-blue-700" : "border-gray-300"
-                  }`}
-                >
-                  {form[key] && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700">{label}</div>
-                  <div className="text-xs text-gray-400">{desc}</div>
-                </div>
+
+            {/* Bevoegdheid vereist */}
+            <div>
+              <div className="text-xs font-medium text-gray-600 mb-2">Bevoegdheid vereist</div>
+              <div className="space-y-2">
+                {BEVOEGDHEID_OPTIONS.map(({ value, label }) => {
+                  const checked = form.requires_bevoegdheid.includes(value);
+                  return (
+                    <label key={value} className="flex items-center gap-3 cursor-pointer">
+                      <div
+                        onClick={() =>
+                          set(
+                            "requires_bevoegdheid",
+                            checked
+                              ? form.requires_bevoegdheid.filter((v) => v !== value)
+                              : [...form.requires_bevoegdheid, value]
+                          )
+                        }
+                        className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-colors flex-shrink-0 ${
+                          checked ? "bg-blue-700 border-blue-700" : "border-gray-300"
+                        }`}
+                      >
+                        {checked && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
+                      </div>
+                      <span className="text-sm text-gray-700">{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Diploma vereist */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div
+                onClick={() => set("requires_diploma", !form.requires_diploma)}
+                className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-colors flex-shrink-0 ${
+                  form.requires_diploma ? "bg-blue-700 border-blue-700" : "border-gray-300"
+                }`}
+              >
+                {form.requires_diploma && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg>}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-gray-700">Diploma vereist</div>
+                <div className="text-xs text-gray-400">SPW / Pedagogisch Werker 3 of hoger</div>
+              </div>
+            </label>
+
+            {/* Minimale werkervaring */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                Minimale werkervaring (jaren)
               </label>
-            ))}
+              <input
+                type="number"
+                min="0"
+                max="20"
+                value={form.min_experience}
+                onChange={(e) => set("min_experience", e.target.value)}
+                className={`w-24 ${inputCls("min_experience")}`}
+                placeholder="0"
+              />
+              <p className="text-xs text-gray-400 mt-1">Laat leeg als geen minimum vereist is.</p>
+            </div>
           </div>
 
           {error && (
