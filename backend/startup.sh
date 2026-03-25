@@ -25,5 +25,9 @@ python manage.py collectstatic --noinput
 # Safe: only UPDATEs existing records, never deletes data
 python manage.py enrich_from_lrk || echo "LRK enrichment skipped or failed (non-blocking)"
 
+# Database backup to Azure Blob Storage — runs at most once per 7 days
+# Safe: read-only pg_dump, no data modified
+python manage.py backup_db || echo "DB backup skipped or failed (non-blocking)"
+
 # Start gunicorn
 gunicorn --bind=0.0.0.0:8000 --timeout=120 --workers=2 config.wsgi
