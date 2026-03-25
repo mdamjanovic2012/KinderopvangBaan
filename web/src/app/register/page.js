@@ -8,21 +8,15 @@ import { useAuth } from "@/context/AuthContext";
 const ROLE_OPTIONS = [
   {
     value: "worker",
-    label: "Pedagogisch medewerker",
+    label: "Ik ben een kinderopvang professional",
     desc: "Ik zoek een baan in de kinderopvang",
     icon: "👤",
   },
   {
     value: "institution",
-    label: "Instelling / Werkgever",
-    desc: "Ik wil vacatures plaatsen en medewerkers vinden",
+    label: "Ik ben een kinderopvangorganisatie",
+    desc: "Ik wil gratis vacatures plaatsen en professionals vinden",
     icon: "🏫",
-  },
-  {
-    value: "parent",
-    label: "Ouder",
-    desc: "Ik zoek kinderopvang voor mijn kind",
-    icon: "👨‍👧",
   },
 ];
 
@@ -86,7 +80,9 @@ export default function RegisterPage() {
         <div className="w-full max-w-md">
           {step === 1 && (
             <div>
-              <h1 className="text-xl font-bold text-gray-900 mb-1 text-center">Maak een account aan</h1>
+              <h1 className="text-xl font-bold text-gray-900 mb-1 text-center">
+                Maak een <span className="text-green-600">gratis</span> account aan
+              </h1>
               <p className="text-sm text-gray-400 text-center mb-8">
                 Wie ben jij?
               </p>

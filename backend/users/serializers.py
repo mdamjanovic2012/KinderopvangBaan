@@ -12,6 +12,14 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "username", "email", "password", "role"]
 
+    def validate_role(self, value):
+        allowed = {User.ROLE_WORKER, User.ROLE_INSTITUTION}
+        if value not in allowed:
+            raise serializers.ValidationError(
+                "Registratie is alleen mogelijk als professional of organisatie."
+            )
+        return value
+
     def create(self, validated_data):
         return User.objects.create_user(**validated_data)
 

@@ -149,6 +149,34 @@ class TestRegisterView:
         }, format="json")
         assert "password" not in res.data
 
+    def test_register_as_parent_rejected(self, api_client):
+        res = api_client.post("/api/auth/register/", {
+            "username": "parentuser",
+            "email": "parent@test.nl",
+            "password": "securepass123",
+            "role": "parent",
+        }, format="json")
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert not User.objects.filter(username="parentuser").exists()
+
+    def test_register_as_worker_allowed(self, api_client):
+        res = api_client.post("/api/auth/register/", {
+            "username": "newworker",
+            "email": "newworker@test.nl",
+            "password": "securepass123",
+            "role": "worker",
+        }, format="json")
+        assert res.status_code == status.HTTP_201_CREATED
+
+    def test_register_as_institution_allowed(self, api_client):
+        res = api_client.post("/api/auth/register/", {
+            "username": "newinst",
+            "email": "newinst@test.nl",
+            "password": "securepass123",
+            "role": "institution",
+        }, format="json")
+        assert res.status_code == status.HTTP_201_CREATED
+
 
 # ---------------------------------------------------------------------------
 # JWT token views
