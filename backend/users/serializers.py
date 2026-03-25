@@ -56,10 +56,11 @@ class PublicWorkerSerializer(serializers.ModelSerializer):
         model = WorkerProfile
         fields = [
             "id", "username", "bio", "years_experience",
-            "has_vog", "has_diploma",
+            "has_diploma", "bevoegdheid",
             "service_types", "contract_types", "hourly_rate",
             "city", "work_radius_km",
-            "is_available", "available_days", "distance_km",
+            "is_available", "immediate_available", "hours_per_week",
+            "available_days", "distance_km",
         ]
 
     def get_distance_km(self, obj):

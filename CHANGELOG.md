@@ -5,6 +5,26 @@ Format: `## [datum] — korte omschrijving`
 
 ---
 
+## [2026-03-25] — Werkzoekende profiel uitgebreid + naam in dashboard
+
+### Toegevoegd
+- **Voornaam + achternaam** bij registratie (optionele velden)
+- **Dashboard groet** gebruikt voornaam als ingevuld (anders gebruikersnaam)
+- **Naam rij** in accountgegevens op dashboard
+- **Werkzoekende profiel** uitgebreid:
+  - Bevoegdheid checkboxes: Dagopvang, BSO, Peuterspeelzaal (vervangt VOG)
+  - Postcode + huisnummer met **PDOK auto-fill** (straat + woonplaats)
+  - Uren per week (gewenst)
+  - Per direct beschikbaar toggle
+  - Dienstverband checkboxes: Fulltime, Parttime, Flex/oproep (ZZP verwijderd)
+- Nieuwe velden op `WorkerProfile`: `bevoegdheid`, `hours_per_week`, `immediate_available`, `postcode`, `house_number`, `street`
+- PublicWorkerSerializer: exposeert `bevoegdheid`, `immediate_available`, `hours_per_week`; adresvelden worden niet gedeeld
+
+### Gewijzigd
+- `UserSerializer` en `RegisterSerializer`: `first_name` + `last_name` toegevoegd
+
+---
+
 ## [2026-03-25] — Owner dashboard + database backup
 
 ### Toegevoegd

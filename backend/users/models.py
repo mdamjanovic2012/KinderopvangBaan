@@ -49,6 +49,19 @@ class WorkerProfile(models.Model):
     is_available = models.BooleanField(default=True)
     is_premium = models.BooleanField(default=False)
 
+    # Bevoegdheid (pedagogisch medewerker kwalificaties)
+    # e.g. ["bso", "dagopvang", "peuterspeelzaal"]
+    bevoegdheid = models.JSONField(default=list, blank=True)
+
+    # Beschikbaarheidsdetails
+    hours_per_week = models.PositiveSmallIntegerField(null=True, blank=True)
+    immediate_available = models.BooleanField(default=False)
+
+    # Adres voor locatiebepaling (PDOK)
+    postcode = models.CharField(max_length=10, blank=True)
+    house_number = models.CharField(max_length=10, blank=True)
+    street = models.CharField(max_length=255, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -312,11 +312,11 @@ class TestWorkerListView:
         usernames = [w["username"] for w in res.data]
         assert "testworker" not in usernames
 
-    def test_worker_has_vog_field(self, api_client, worker_profile):
+    def test_worker_has_diploma_field(self, api_client, worker_profile):
         res = api_client.get("/api/users/workers/")
         worker = next((w for w in res.data if w["username"] == "testworker"), None)
         assert worker is not None
-        assert worker["has_vog"] is True
+        assert worker["has_diploma"] is True
 
     def test_worker_has_available_days(self, api_client, worker_profile):
         res = api_client.get("/api/users/workers/")
@@ -381,3 +381,77 @@ class TestFirstLastName:
         assert res.status_code == 200
         assert res.data["first_name"] == "Sofie"
         assert res.data["last_name"] == "Bakker"
+
+
+# ---------------------------------------------------------------------------
+# Nieuwe profielvelden: bevoegdheid, hours_per_week, immediate_available, adres
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWorkerProfileNewFields:
+    def test_patch_bevoegdheid(self, auth_client, worker_profile):
+        res = auth_client.patch("/api/auth/worker-profile/", {
+            "bevoegdheid": ["bso", "dagopvang"],
+        }, format="json")
+        assert res.status_code == 200
+        worker_profile.refresh_from_db()
+        assert worker_profile.bevoegdheid == ["bso", "dagopvang"]
+
+    def test_patch_hours_per_week(self, auth_client, worker_profile):
+        res = auth_client.patch("/api/auth/worker-profile/", {
+            "hours_per_week": 32,
+        }, format="json")
+        assert res.status_code == 200
+        worker_profile.refresh_from_db()
+        assert worker_profile.hours_per_week == 32
+
+    def test_patch_immediate_available(self, auth_client, worker_profile):
+        res = auth_client.patch("/api/auth/worker-profile/", {
+            "immediate_available": True,
+        }, format="json")
+        assert res.status_code == 200
+        worker_profile.refresh_from_db()
+        assert worker_profile.immediate_available is True
+
+    def test_patch_address_fields(self, auth_client, worker_profile):
+        res = auth_client.patch("/api/auth/worker-profile/", {
+            "postcode": "1234AB",
+            "house_number": "10",
+            "street": "Teststraat",
+            "city": "Amsterdam",
+        }, format="json")
+        assert res.status_code == 200
+        worker_profile.refresh_from_db()
+        assert worker_profile.postcode == "1234AB"
+        assert worker_profile.house_number == "10"
+        assert worker_profile.street == "Teststraat"
+
+    def test_default_bevoegdheid_empty(self, db, worker_user):
+        profile = WorkerProfile.objects.create(user=worker_user)
+        assert profile.bevoegdheid == []
+
+    def test_default_immediate_available_false(self, db, worker_user):
+        profile = WorkerProfile.objects.create(user=worker_user)
+        assert profile.immediate_available is False
+
+    def test_default_hours_per_week_none(self, db, worker_user):
+        profile = WorkerProfile.objects.create(user=worker_user)
+        assert profile.hours_per_week is None
+
+    def test_public_serializer_exposes_bevoegdheid(self, worker_profile):
+        worker_profile.bevoegdheid = ["peuterspeelzaal"]
+        worker_profile.save()
+        data = PublicWorkerSerializer(worker_profile).data
+        assert data["bevoegdheid"] == ["peuterspeelzaal"]
+
+    def test_public_serializer_exposes_immediate_available(self, worker_profile):
+        worker_profile.immediate_available = True
+        worker_profile.save()
+        data = PublicWorkerSerializer(worker_profile).data
+        assert data["immediate_available"] is True
+
+    def test_public_serializer_does_not_expose_address(self, worker_profile):
+        data = PublicWorkerSerializer(worker_profile).data
+        assert "postcode" not in data
+        assert "house_number" not in data
+        assert "street" not in data
