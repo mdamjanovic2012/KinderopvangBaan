@@ -368,7 +368,7 @@ class TestInstitutionDetailSerializer:
             institution=child,
             posted_by=user,
             title="PM",
-            job_type="bso",
+            job_type="pm3",
             contract_type="fulltime",
             description="test",
             city="Amsterdam",

@@ -7,6 +7,7 @@ from django.contrib.gis.measure import D
 from institutions.models import Institution
 from .models import Job, JobApplication
 from .serializers import JobSerializer, JobApplicationSerializer
+from .constants import CAO_FUNCTIONS, CAO_FUNCTION_VALUES
 
 
 class JobListCreateView(generics.ListCreateAPIView):
@@ -93,3 +94,22 @@ class MyApplicationsView(generics.ListAPIView):
 
     def get_queryset(self):
         return JobApplication.objects.filter(applicant=self.request.user).select_related("job")
+
+
+class JobChoicesView(APIView):
+    """
+    GET /api/jobs/choices/
+    Geeft de vaste CAO functielijst + contract types terug.
+    """
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response({
+            "cao_functions": [{"value": v, "label": l} for v, l in CAO_FUNCTIONS],
+            "contract_types": [
+                {"value": "fulltime", "label": "Full-time"},
+                {"value": "parttime", "label": "Part-time"},
+                {"value": "temp", "label": "Tijdelijk"},
+            ],
+        })

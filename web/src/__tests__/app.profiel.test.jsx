@@ -25,6 +25,7 @@ const DEFAULT_PROFILE = {
   work_radius_km: 15,
   has_diploma: true,
   bevoegdheid: ["bso"],
+  cao_function: "pm3",
   contract_types: ["fulltime"],
   years_experience: 3,
   hours_per_week: 32,
@@ -84,6 +85,32 @@ describe("Profiel pagina — basisweergave", () => {
   test("toont jaren werkervaring", async () => {
     await setup();
     expect(screen.getByPlaceholderText("0")).toHaveValue(3);
+  });
+});
+
+describe("Profiel pagina — CAO functie", () => {
+  test("toont functie dropdown", async () => {
+    await setup();
+    expect(screen.getByText("Mijn functie")).toBeInTheDocument();
+  });
+
+  test("laadt cao_function uit API", async () => {
+    await setup({ cao_function: "pm3" });
+    const select = screen.getByDisplayValue("Pedagogisch medewerker (niveau 3)");
+    expect(select).toBeInTheDocument();
+  });
+
+  test("verstuurt cao_function in PATCH body", async () => {
+    await setup({ cao_function: "bso_begeleider" });
+    const submitBtn = screen.getByRole("button", { name: "Opslaan" });
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+    await waitFor(() => {
+      const patchCall = global.fetch.mock.calls.find((c) => c[1]?.method === "PATCH");
+      const body = JSON.parse(patchCall[1].body);
+      expect(body.cao_function).toBe("bso_begeleider");
+    });
   });
 });
 

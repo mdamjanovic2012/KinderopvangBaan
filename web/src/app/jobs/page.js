@@ -5,20 +5,17 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import Nav from "@/components/Nav";
 import { useAuth } from "@/context/AuthContext";
+import { CAO_FUNCTIONS, getCaoLabel } from "@/lib/caoFunctions";
 
 const JOB_TYPE_OPTIONS = [
   { value: "", label: "Alle functies" },
-  { value: "bso", label: "BSO medewerker" },
-  { value: "kdv", label: "Pedagogisch medewerker KDV" },
-  { value: "nanny", label: "Nanny" },
-  { value: "gastouder", label: "Gastouder" },
+  ...CAO_FUNCTIONS,
 ];
 
 const CONTRACT_OPTIONS = [
   { value: "", label: "Alle contracten" },
   { value: "fulltime", label: "Full-time" },
   { value: "parttime", label: "Part-time" },
-  { value: "zzp", label: "ZZP / Freelance" },
   { value: "temp", label: "Tijdelijk" },
 ];
 
@@ -27,14 +24,12 @@ const RADIUS_OPTIONS = [5, 10, 15, 25, 50];
 const CONTRACT_COLORS = {
   fulltime: "bg-blue-50 text-blue-600",
   parttime: "bg-emerald-50 text-emerald-600",
-  zzp: "bg-amber-50 text-amber-600",
   temp: "bg-purple-50 text-purple-600",
 };
 
 const CONTRACT_LABELS = {
   fulltime: "Full-time",
   parttime: "Part-time",
-  zzp: "ZZP",
   temp: "Tijdelijk",
 };
 

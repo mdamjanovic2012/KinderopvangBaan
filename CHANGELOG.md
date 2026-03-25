@@ -5,6 +5,26 @@ Format: `## [datum] — korte omschrijving`
 
 ---
 
+## [2026-03-25] — CAO functielijst + werkzoekende profiel uitgebreid
+
+### Toegevoegd
+- **CAO kinderopvang functielijst** (12 functies) als vaste keuzelijst
+  - Vervangt oude `job_type` keuzes (bso/kdv/nanny/gastouder)
+  - Functies: Assistent PM, PM3, PM4, Senior PM, Groepsbegeleider BSO, Coördinator BSO, Teamleider, Locatiemanager, Pedagogisch beleidsmedewerker, Gastouder, Nanny, Stagiair
+- `Job.job_type` keuzes vervangen door CAO functielijst
+- `WorkerProfile.cao_function` veld — medewerker kiest eigen CAO-functie
+- API endpoint `GET /api/jobs/choices/` — geeft CAO functies + contract types terug
+- Frontend `web/src/lib/caoFunctions.js` — gedeelde constanten
+- ZZP verwijderd uit `Job.contract_type` keuzes
+
+### Gewijzigd
+- `web/src/app/jobs/page.js`: filterselectie gebruikt volledige CAO lijst
+- `web/src/app/jobs/[id]/page.js`: toont CAO-functielabel via `getCaoLabel()`
+- `web/src/app/dashboard/vacatures/nieuw/page.js`: functiedropdown via CAO lijst
+- `web/src/app/dashboard/profiel/page.js`: CAO-functie select toegevoegd
+
+---
+
 ## [2026-03-25] — Werkzoekende profiel uitgebreid + naam in dashboard
 
 ### Toegevoegd

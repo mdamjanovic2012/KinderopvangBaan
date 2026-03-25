@@ -40,7 +40,7 @@ def make_job(institution, user):
         institution=institution,
         posted_by=user,
         title="PM KDV",
-        job_type="kdv",
+        job_type="pm4",
         contract_type="fulltime",
         description="Test vacature",
         city="Amsterdam",

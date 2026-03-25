@@ -1,28 +1,19 @@
 from django.contrib.gis.db import models
 from django.conf import settings
 from institutions.models import Institution
+from .constants import CAO_FUNCTIONS
 
 
 class Job(models.Model):
-    TYPE_BSO = "bso"
-    TYPE_KDV = "kdv"
-    TYPE_NANNY = "nanny"
-    TYPE_GASTOUDER = "gastouder"
-    TYPE_CHOICES = [
-        (TYPE_BSO, "BSO medewerker"),
-        (TYPE_KDV, "Pedagogisch medewerker KDV"),
-        (TYPE_NANNY, "Nanny"),
-        (TYPE_GASTOUDER, "Gastouder"),
-    ]
+    # CAO kinderopvang functielijst (vervangt TYPE_CHOICES)
+    TYPE_CHOICES = CAO_FUNCTIONS
 
     CONTRACT_FULLTIME = "fulltime"
     CONTRACT_PARTTIME = "parttime"
-    CONTRACT_ZZP = "zzp"
     CONTRACT_TEMP = "temp"
     CONTRACT_CHOICES = [
         (CONTRACT_FULLTIME, "Full-time"),
         (CONTRACT_PARTTIME, "Part-time"),
-        (CONTRACT_ZZP, "ZZP / Freelance"),
         (CONTRACT_TEMP, "Tijdelijk"),
     ]
 

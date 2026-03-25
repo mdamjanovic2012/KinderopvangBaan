@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Nav from "@/components/Nav";
+import { CAO_FUNCTIONS } from "@/lib/caoFunctions";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -36,23 +37,17 @@ async function authGet(path) {
   return res.json();
 }
 
-const JOB_TYPES = [
-  { value: "bso", label: "BSO medewerker" },
-  { value: "kdv", label: "Pedagogisch medewerker KDV" },
-  { value: "nanny", label: "Nanny" },
-  { value: "gastouder", label: "Gastouder" },
-];
+const JOB_TYPES = CAO_FUNCTIONS;
 
 const CONTRACT_TYPES = [
   { value: "fulltime", label: "Full-time" },
   { value: "parttime", label: "Part-time" },
-  { value: "zzp", label: "ZZP / Freelance" },
   { value: "temp", label: "Tijdelijk" },
 ];
 
 const EMPTY_FORM = {
   title: "",
-  job_type: "bso",
+  job_type: "pm3",
   contract_type: "parttime",
   description: "",
   salary_min: "",

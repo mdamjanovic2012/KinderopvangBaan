@@ -105,7 +105,7 @@ def job(db, institution, institution_user):
         institution=institution,
         posted_by=institution_user,
         title="Test BSO Medewerker",
-        job_type="bso",
+        job_type="pm3",
         contract_type="parttime",
         description="Test job description",
         location=institution.location,

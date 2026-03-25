@@ -56,7 +56,7 @@ class PublicWorkerSerializer(serializers.ModelSerializer):
         model = WorkerProfile
         fields = [
             "id", "username", "bio", "years_experience",
-            "has_diploma", "bevoegdheid",
+            "has_diploma", "bevoegdheid", "cao_function",
             "service_types", "contract_types", "hourly_rate",
             "city", "work_radius_km",
             "is_available", "immediate_available", "hours_per_week",

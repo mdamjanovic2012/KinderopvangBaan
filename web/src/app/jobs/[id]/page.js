@@ -6,19 +6,12 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import Nav from "@/components/Nav";
 import { useAuth } from "@/context/AuthContext";
+import { getCaoLabel } from "@/lib/caoFunctions";
 
 const CONTRACT_LABELS = {
   fulltime: "Full-time",
   parttime: "Part-time",
-  zzp: "ZZP / Freelance",
   temp: "Tijdelijk",
-};
-
-const JOB_TYPE_LABELS = {
-  bso: "BSO medewerker",
-  kdv: "Pedagogisch medewerker KDV",
-  nanny: "Nanny",
-  gastouder: "Gastouder",
 };
 
 export default function JobDetailPage({ params }) {
@@ -85,7 +78,7 @@ export default function JobDetailPage({ params }) {
                   {CONTRACT_LABELS[job.contract_type] || job.contract_type}
                 </span>
                 <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">
-                  {JOB_TYPE_LABELS[job.job_type] || job.job_type}
+                  {getCaoLabel(job.job_type)}
                 </span>
                 {job.is_premium && (
                   <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-600">

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import Nav from "@/components/Nav";
+import { CAO_FUNCTIONS } from "@/lib/caoFunctions";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 const PDOK_URL = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free";
@@ -81,6 +82,7 @@ export default function WorkerProfilePage() {
     work_radius_km: 15,
     has_diploma: false,
     bevoegdheid: [],
+    cao_function: "",
     contract_types: [],
     years_experience: "",
     hours_per_week: "",
@@ -106,6 +108,7 @@ export default function WorkerProfilePage() {
           work_radius_km: data.work_radius_km || 15,
           has_diploma: data.has_diploma || false,
           bevoegdheid: data.bevoegdheid || [],
+          cao_function: data.cao_function || "",
           contract_types: (data.contract_types || []).filter((c) => c !== "zzp"),
           years_experience: data.years_experience ?? "",
           hours_per_week: data.hours_per_week ?? "",
@@ -194,6 +197,7 @@ export default function WorkerProfilePage() {
           work_radius_km: Number(form.work_radius_km),
           has_diploma: form.has_diploma,
           bevoegdheid: form.bevoegdheid,
+          cao_function: form.cao_function,
           contract_types: form.contract_types,
           years_experience: form.years_experience !== "" ? Number(form.years_experience) : null,
           hours_per_week: form.hours_per_week !== "" ? Number(form.hours_per_week) : null,
@@ -260,6 +264,22 @@ export default function WorkerProfilePage() {
                 placeholder="0"
               />
             </div>
+          </div>
+
+          {/* CAO functie */}
+          <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-900 mb-1">Mijn functie</h2>
+            <p className="text-xs text-gray-400 mb-3">Selecteer jouw CAO-functie uit de kinderopvang functielijst.</p>
+            <select
+              value={form.cao_function}
+              onChange={(e) => setForm((f) => ({ ...f, cao_function: e.target.value }))}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white"
+            >
+              <option value="">— Selecteer een functie —</option>
+              {CAO_FUNCTIONS.map((fn) => (
+                <option key={fn.value} value={fn.value}>{fn.label}</option>
+              ))}
+            </select>
           </div>
 
           {/* Locatie */}

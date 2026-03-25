@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.contrib.gis.db import models
+from jobs.constants import CAO_FUNCTIONS
 
 
 class User(AbstractUser):
@@ -48,6 +49,9 @@ class WorkerProfile(models.Model):
 
     is_available = models.BooleanField(default=True)
     is_premium = models.BooleanField(default=False)
+
+    # CAO functie
+    cao_function = models.CharField(max_length=30, blank=True, choices=CAO_FUNCTIONS)
 
     # Bevoegdheid (pedagogisch medewerker kwalificaties)
     # e.g. ["bso", "dagopvang", "peuterspeelzaal"]

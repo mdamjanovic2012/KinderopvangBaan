@@ -1,11 +1,12 @@
 """
 Unit tests for the jobs app.
-Covers: models, serializers, list/create, detail, nearby, apply, my-applications.
+Covers: models, serializers, list/create, detail, nearby, apply, my-applications, choices.
 """
 import pytest
 from rest_framework import status
 from jobs.models import Job, JobApplication
 from jobs.serializers import JobSerializer
+from jobs.constants import CAO_FUNCTIONS, CAO_FUNCTION_VALUES
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ class TestJobModel:
             institution=institution,
             posted_by=institution_user,
             title="Old job",
-            job_type="bso",
+            job_type="pm3",
             contract_type="fulltime",
             description="Old",
             location=institution.location,
@@ -39,7 +40,7 @@ class TestJobModel:
             institution=institution,
             posted_by=institution_user,
             title="New job",
-            job_type="bso",
+            job_type="pm3",
             contract_type="fulltime",
             description="New",
             location=institution.location,
@@ -111,12 +112,12 @@ class TestJobListCreateView:
     def test_filter_by_job_type(self, api_client, job, db, institution, institution_user):
         Job.objects.create(
             institution=institution, posted_by=institution_user,
-            title="KDV job", job_type="kdv", contract_type="fulltime",
+            title="KDV job", job_type="pm4", contract_type="fulltime",
             description="X", location=institution.location, city=institution.city,
         )
-        res = api_client.get("/api/jobs/?job_type=bso")
+        res = api_client.get("/api/jobs/?job_type=pm3")
         types = [j["job_type"] for j in res.data["results"]]
-        assert all(t == "bso" for t in types)
+        assert all(t == "pm3" for t in types)
 
     def test_filter_by_contract_type(self, api_client, job):
         res = api_client.get("/api/jobs/?contract_type=parttime")
@@ -127,7 +128,7 @@ class TestJobListCreateView:
         res = api_client.post("/api/jobs/", {
             "institution": institution.pk,
             "title": "New job",
-            "job_type": "bso",
+            "job_type": "pm3",
             "contract_type": "parttime",
             "description": "Test",
         }, format="json")
@@ -137,7 +138,7 @@ class TestJobListCreateView:
         res = institution_client.post("/api/jobs/", {
             "institution": institution.pk,
             "title": "New Vacancy",
-            "job_type": "kdv",
+            "job_type": "pm4",
             "contract_type": "fulltime",
             "description": "We are looking for a medewerker.",
             "requires_vog": True,
@@ -149,7 +150,7 @@ class TestJobListCreateView:
         res = institution_client.post("/api/jobs/", {
             "institution": institution.pk,
             "title": "Location Test",
-            "job_type": "bso",
+            "job_type": "pm3",
             "contract_type": "parttime",
             "description": "Test",
         }, format="json")
@@ -198,7 +199,7 @@ class TestNearbyJobsView:
         from jobs.models import Job
         Job.objects.create(
             institution=institution_rotterdam, posted_by=institution_user,
-            title="Rotterdam job", job_type="kdv", contract_type="fulltime",
+            title="Rotterdam job", job_type="pm4", contract_type="fulltime",
             description="X", location=institution_rotterdam.location,
             city="Rotterdam",
         )
@@ -230,7 +231,7 @@ class TestNearbyJobsView:
         )
         Job.objects.create(
             institution=inst2, posted_by=institution_user,
-            title="Far job", job_type="bso", contract_type="parttime",
+            title="Far job", job_type="pm3", contract_type="parttime",
             description="X", location=inst2.location, city="Amsterdam",
         )
         res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=50")
@@ -238,9 +239,9 @@ class TestNearbyJobsView:
         assert distances == sorted(d for d in distances if d is not None)
 
     def test_filter_by_job_type(self, api_client, job):
-        res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=50&job_type=bso")
+        res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=50&job_type=pm3")
         types = [j["job_type"] for j in res.data]
-        assert all(t == "bso" for t in types)
+        assert all(t == "pm3" for t in types)
 
 
 # ---------------------------------------------------------------------------
@@ -299,3 +300,69 @@ class TestMyApplicationsView:
         res = auth_client.get("/api/jobs/my-applications/")
         results = res.data.get("results", res.data)
         assert results == []
+
+
+# ---------------------------------------------------------------------------
+# JobChoicesView — CAO functielijst endpoint
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestJobChoicesView:
+    def test_choices_returns_200(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_choices_contains_cao_functions(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        assert "cao_functions" in res.data
+        values = [f["value"] for f in res.data["cao_functions"]]
+        assert "pm3" in values
+        assert "bso_begeleider" in values
+        assert "gastouder" in values
+
+    def test_choices_contains_contract_types(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        assert "contract_types" in res.data
+        values = [c["value"] for c in res.data["contract_types"]]
+        assert "fulltime" in values
+        assert "parttime" in values
+        assert "zzp" not in values
+
+    def test_choices_no_auth_required(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        assert res.status_code == 200
+
+    def test_cao_functions_have_value_and_label(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        for fn in res.data["cao_functions"]:
+            assert "value" in fn
+            assert "label" in fn
+            assert len(fn["label"]) > 0
+
+    def test_cao_constants_all_present(self, api_client):
+        res = api_client.get("/api/jobs/choices/")
+        api_values = {f["value"] for f in res.data["cao_functions"]}
+        for v in CAO_FUNCTION_VALUES:
+            assert v in api_values
+
+
+# ---------------------------------------------------------------------------
+# CAO function op WorkerProfile
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWorkerProfileCaoFunction:
+    def test_patch_cao_function(self, auth_client, worker_profile):
+        res = auth_client.patch("/api/auth/worker-profile/", {
+            "cao_function": "pm3",
+        }, format="json")
+        assert res.status_code == 200
+        worker_profile.refresh_from_db()
+        assert worker_profile.cao_function == "pm3"
+
+    def test_cao_function_in_serializer_response(self, auth_client, worker_profile):
+        worker_profile.cao_function = "bso_begeleider"
+        worker_profile.save()
+        res = auth_client.get("/api/auth/worker-profile/")
+        assert res.status_code == 200
+        assert res.data["cao_function"] == "bso_begeleider"

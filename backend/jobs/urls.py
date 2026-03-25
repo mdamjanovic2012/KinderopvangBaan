@@ -7,4 +7,5 @@ urlpatterns = [
     path("<int:pk>/apply/", views.ApplyView.as_view(), name="apply"),
     path("nearby/", views.NearbyJobsView.as_view(), name="nearby_jobs"),
     path("my-applications/", views.MyApplicationsView.as_view(), name="my_applications"),
+    path("choices/", views.JobChoicesView.as_view(), name="job_choices"),
 ]
