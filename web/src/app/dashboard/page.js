@@ -12,7 +12,6 @@ const ROLE_CONFIG = {
     subtitle: "Vind vacatures die bij jou passen.",
     actions: [
       { href: "/jobs", label: "Bekijk vacatures", icon: "📋", primary: true },
-      { href: "/map", label: "Kaart bekijken", icon: "🗺️", primary: false },
       { href: "/dashboard/profiel", label: "Mijn profiel", icon: "👤", primary: false },
     ],
   },

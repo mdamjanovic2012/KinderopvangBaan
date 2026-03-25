@@ -19,7 +19,7 @@ const CONTRACT_OPTIONS = [
   { value: "temp", label: "Tijdelijk" },
 ];
 
-const RADIUS_OPTIONS = [5, 10, 15, 25, 50];
+const RADIUS_OPTIONS = [5, 10, 15, 20];
 
 const CONTRACT_COLORS = {
   fulltime: "bg-blue-50 text-blue-600",
@@ -99,6 +99,25 @@ function JobCard({ job }) {
   );
 }
 
+const PDOK_URL = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free";
+
+async function lookupPostcode(postcode) {
+  const cleaned = postcode.replace(/\s/g, "").toUpperCase();
+  if (!/^\d{4}[A-Z]{2}$/.test(cleaned)) return null;
+  try {
+    const res = await fetch(`${PDOK_URL}?q=${cleaned}&fq=type:postcode6&rows=1&fl=centroide_ll`);
+    const json = await res.json();
+    const doc = json?.response?.docs?.[0];
+    if (!doc?.centroide_ll) return null;
+    // centroide_ll = "POINT(lon lat)"
+    const match = doc.centroide_ll.match(/POINT\(([\d.]+)\s+([\d.]+)\)/);
+    if (!match) return null;
+    return { lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
+  } catch {
+    return null;
+  }
+}
+
 export default function JobsPage() {
   const { profile } = useAuth();
   const profileRadius = profile?.work_radius_km ?? null;
@@ -113,6 +132,19 @@ export default function JobsPage() {
   useEffect(() => {
     if (profileRadius) setFilters((f) => ({ ...f, radius: profileRadius }));
   }, [profileRadius]);
+
+  // Auto-fill locatie vanuit profiel postcode als ingelogd
+  useEffect(() => {
+    if (profile?.postcode && !userLocation) {
+      lookupPostcode(profile.postcode).then((loc) => {
+        if (loc) {
+          setUserLocation(loc);
+          setMode("nearby");
+        }
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.postcode]);
 
   const loadAll = useCallback(() => {
     setLoading(true);

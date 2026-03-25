@@ -5,6 +5,17 @@ Format: `## [datum] — korte omschrijving`
 
 ---
 
+## [2026-03-25] — Zoekfilters vacatures + kaart verwijderd uit werkzoekende dashboard
+
+### Toegevoegd
+- **Postcode auto-fill** in vacaturezoeker: als ingelogde werkzoekende een postcode in profiel heeft, worden coördinaten automatisch opgezocht via PDOK en nabijgelegen modus geactiveerd
+
+### Gewijzigd
+- Zoekradius opties: 5 / 10 / 15 / 20 km (was 5/10/15/25/50)
+- Kaart-knop verwijderd uit werkzoekende dashboard (worker role)
+
+---
+
 ## [2026-03-25] — CAO functielijst + werkzoekende profiel uitgebreid
 
 ### Toegevoegd
