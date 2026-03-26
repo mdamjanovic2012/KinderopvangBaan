@@ -1,0 +1,169 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - backend/**
+      - .azure-pipelines/backend-deploy.yml
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - backend/**
+
+pool:
+  name: MacLocal
+
+variables:
+  AZURE_WEBAPP_NAME: "kinderopvangbaan-api"
+  ARTIFACT_NAME: "backend-build"
+  # Semantic version: set MAJOR and MINOR in pipeline UI, PATCH = build counter
+  MAJOR: "1"
+  MINOR: "0"
+  VERSION: "$(MAJOR).$(MINOR).$(Build.BuildId)"
+
+stages:
+  # ─────────────────────────────────────────
+  # STAGE 1: Security scan
+  # ─────────────────────────────────────────
+  - stage: SecurityScan
+    displayName: "Security scan"
+    jobs:
+      - job: Bandit
+        displayName: "Bandit Python security scan"
+        steps:
+          - script: |
+              source backend/venv/bin/activate
+              bandit -r backend/ \
+                --exclude backend/venv,backend/tests \
+                -f json \
+                -o $(Build.ArtifactStagingDirectory)/bandit-report.json || true
+              # Fail pipeline on high-severity findings
+              bandit -r backend/ \
+                --exclude backend/venv,backend/tests \
+                --severity-level high
+            displayName: Bandit security scan
+
+          - publish: $(Build.ArtifactStagingDirectory)/bandit-report.json
+            artifact: security-report
+            displayName: Publish security report
+            condition: always()
+
+  # ─────────────────────────────────────────
+  # STAGE 2: Unit tests + coverage
+  # ─────────────────────────────────────────
+  - stage: UnitTests
+    displayName: "Unit Tests"
+    dependsOn: SecurityScan
+    condition: succeeded()
+    jobs:
+      - job: Pytest
+        displayName: "pytest (coverage ≥ 90%)"
+        steps:
+          - script: |
+              source backend/venv/bin/activate
+              cd backend
+              pytest tests/ \
+                --create-db \
+                --junitxml=$(Build.ArtifactStagingDirectory)/pytest-results.xml \
+                -q
+            displayName: Run pytest
+            env:
+              CI: "true"
+
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: $(Build.ArtifactStagingDirectory)/pytest-results.xml
+              failTaskOnFailedTests: true
+              testRunTitle: "pytest Unit Tests"
+            displayName: Publish test results
+            condition: always()
+
+          - task: PublishCodeCoverageResults@2
+            inputs:
+              summaryFileLocation: backend/coverage.xml
+              pathToSources: backend
+            displayName: Publish code coverage
+            condition: always()
+
+  # ─────────────────────────────────────────
+  # STAGE 3: Package
+  # ─────────────────────────────────────────
+  - stage: Build
+    displayName: "Build"
+    dependsOn: UnitTests
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: PackageBackend
+        displayName: "Package backend v$(VERSION)"
+        steps:
+          - script: |
+              cd backend
+              zip -r $(Build.ArtifactStagingDirectory)/backend-$(VERSION).zip . \
+                --exclude "venv/*" \
+                --exclude "__pycache__/*" \
+                --exclude "*.pyc" \
+                --exclude ".coverage" \
+                --exclude "coverage.xml" \
+                --exclude ".pytest_cache/*" \
+                --exclude ".lrk_last_run"
+            displayName: "Create artifact backend-$(VERSION).zip"
+
+          - publish: $(Build.ArtifactStagingDirectory)/backend-$(VERSION).zip
+            artifact: $(ARTIFACT_NAME)
+            displayName: Publish build artifact
+
+  # ─────────────────────────────────────────
+  # STAGE 4: Deploy to Production
+  # ─────────────────────────────────────────
+  - stage: Deploy
+    displayName: "Deploy to Production"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: DeployBackend
+        displayName: "Deploy to Azure App Service"
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: $(ARTIFACT_NAME)
+                  displayName: Download artifact
+
+                - task: AzureCLI@2
+                  inputs:
+                    azureSubscription: AzureServiceConnection
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az webapp config appsettings set \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
+                      az webapp deploy \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --src-path "$(Pipeline.Workspace)/$(ARTIFACT_NAME)/backend-$(VERSION).zip" \
+                        --type zip \
+                        --async true
+                      az webapp config set \
+                        --name $(AZURE_WEBAPP_NAME) \
+                        --resource-group kinderopvangbaan-rg \
+                        --startup-file "bash /home/site/wwwroot/startup.sh"
+                  displayName: "Deploy v$(VERSION) to Azure"
+
+                - script: |
+                    echo "Čekam da Azure App Service restartuje (~90s)..."
+                    sleep 90
+                    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                      https://$(AZURE_WEBAPP_NAME).azurewebsites.net/api/jobs/)
+                    echo "HTTP status: $STATUS"
+                    [ "$STATUS" = "200" ] && echo "Deployment OK" || exit 1
+                  displayName: "Smoke test (GET /api/jobs/)"
