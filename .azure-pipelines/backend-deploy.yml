@@ -95,6 +95,8 @@ stages:
               DB_PASSWORD: $(DB_PASSWORD)
               DB_HOST: $(DB_HOST)
               DB_PORT: $(DB_PORT)
+              SECRET_KEY: "ci-test-key-not-used-in-production"
+              CORS_ALLOWED_ORIGINS: "http://localhost:3000,https://werkeninopvang.nl,https://www.werkeninopvang.nl,https://kinderopvangbaan-web.azurewebsites.net"
 
           - task: PublishTestResults@2
             inputs:
