@@ -37,14 +37,14 @@ stages:
         displayName: "Bandit Python security scan"
         steps:
           - script: |
-              source backend/venv/bin/activate
-              bandit -r backend/ \
-                --exclude backend/venv,backend/tests \
+              source $(Build.SourcesDirectory)/backend/venv/bin/activate
+              bandit -r $(Build.SourcesDirectory)/backend/ \
+                --exclude $(Build.SourcesDirectory)/backend/venv,$(Build.SourcesDirectory)/backend/tests \
                 -f json \
                 -o $(Build.ArtifactStagingDirectory)/bandit-report.json || true
               # Fail pipeline on high-severity findings
-              bandit -r backend/ \
-                --exclude backend/venv,backend/tests \
+              bandit -r $(Build.SourcesDirectory)/backend/ \
+                --exclude $(Build.SourcesDirectory)/backend/venv,$(Build.SourcesDirectory)/backend/tests \
                 --severity-level high
             displayName: Bandit security scan
 
@@ -65,8 +65,8 @@ stages:
         displayName: "pytest (coverage ≥ 90%)"
         steps:
           - script: |
-              source backend/venv/bin/activate
-              cd backend
+              source $(Build.SourcesDirectory)/backend/venv/bin/activate
+              cd $(Build.SourcesDirectory)/backend
               pytest tests/ \
                 --create-db \
                 --junitxml=$(Build.ArtifactStagingDirectory)/pytest-results.xml \
@@ -86,8 +86,8 @@ stages:
 
           - task: PublishCodeCoverageResults@2
             inputs:
-              summaryFileLocation: backend/coverage.xml
-              pathToSources: backend
+              summaryFileLocation: $(Build.SourcesDirectory)/backend/coverage.xml
+              pathToSources: $(Build.SourcesDirectory)/backend
             displayName: Publish code coverage
             condition: always()
 
@@ -103,7 +103,7 @@ stages:
         displayName: "Package backend v$(VERSION)"
         steps:
           - script: |
-              cd backend
+              cd $(Build.SourcesDirectory)/backend
               zip -r $(Build.ArtifactStagingDirectory)/backend-$(VERSION).zip . \
                 --exclude "venv/*" \
                 --exclude "__pycache__/*" \
