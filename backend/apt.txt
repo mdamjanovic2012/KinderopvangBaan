@@ -1,3 +1,5 @@
 gdal-bin
 libgdal-dev
 libgeos-dev
+postgresql-client
+
