@@ -37,14 +37,20 @@ stages:
         displayName: "Bandit Python security scan"
         steps:
           - script: |
-              source $(Build.SourcesDirectory)/backend/venv/bin/activate
+              python3 -m venv $(Agent.TempDirectory)/venv
+              source $(Agent.TempDirectory)/venv/bin/activate
+              pip install --quiet -r $(Build.SourcesDirectory)/backend/requirements.txt
+            displayName: Install dependencies
+
+          - script: |
+              source $(Agent.TempDirectory)/venv/bin/activate
               bandit -r $(Build.SourcesDirectory)/backend/ \
-                --exclude $(Build.SourcesDirectory)/backend/venv,$(Build.SourcesDirectory)/backend/tests \
+                --exclude $(Build.SourcesDirectory)/backend/tests \
                 -f json \
                 -o $(Build.ArtifactStagingDirectory)/bandit-report.json || true
               # Fail pipeline on high-severity findings
               bandit -r $(Build.SourcesDirectory)/backend/ \
-                --exclude $(Build.SourcesDirectory)/backend/venv,$(Build.SourcesDirectory)/backend/tests \
+                --exclude $(Build.SourcesDirectory)/backend/tests \
                 --severity-level high
             displayName: Bandit security scan
 
@@ -65,7 +71,13 @@ stages:
         displayName: "pytest (coverage ≥ 90%)"
         steps:
           - script: |
-              source $(Build.SourcesDirectory)/backend/venv/bin/activate
+              python3 -m venv $(Agent.TempDirectory)/venv
+              source $(Agent.TempDirectory)/venv/bin/activate
+              pip install --quiet -r $(Build.SourcesDirectory)/backend/requirements.txt
+            displayName: Install dependencies
+
+          - script: |
+              source $(Agent.TempDirectory)/venv/bin/activate
               cd $(Build.SourcesDirectory)/backend
               pytest tests/ \
                 --create-db \
