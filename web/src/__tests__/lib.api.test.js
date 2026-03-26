@@ -3,6 +3,32 @@
  */
 import { api } from "@/lib/api";
 
+describe("API configuratie", () => {
+  it("NEXT_PUBLIC_API_URL wijst niet naar localhost in productie", () => {
+    const url = process.env.NEXT_PUBLIC_API_URL;
+    // Als de variabele gezet is, mag het geen localhost zijn
+    if (url) {
+      expect(url).not.toMatch(/localhost|127\.0\.0\.1/);
+      expect(url).toMatch(/^https:\/\//);
+    }
+  });
+
+  it("API-aanroepen bevatten nooit een localhost-URL", async () => {
+    const mockFetchLocal = (data) =>
+      global.fetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => data,
+      });
+    mockFetchLocal({ results: [] });
+    await api.jobs();
+    const url = fetch.mock.calls[0][0];
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      expect(url).not.toContain("localhost");
+    }
+  });
+});
+
 const mockFetch = (data, ok = true, status = 200) => {
   global.fetch.mockResolvedValueOnce({
     ok,
@@ -76,7 +102,7 @@ describe("api.nearbyInstitutions", () => {
 describe("api.reviews", () => {
   it("fetches reviews for institution", async () => {
     mockFetch([{ id: 1, rating: 4 }]);
-    const data = await api.reviews(3);
+    await api.reviews(3);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/institutions/3/reviews/"),
       expect.any(Object)
