@@ -123,3 +123,19 @@ describe("Nav — authenticated", () => {
     expect(screen.getByText("Ouder")).toBeInTheDocument();
   });
 });
+
+describe("Nav — mobiel hamburger menu", () => {
+  beforeEach(() => setupMock());
+
+  it("hamburger knop is aanwezig", () => {
+    render(<Nav />);
+    expect(screen.getByLabelText("Menu openen")).toBeInTheDocument();
+  });
+
+  it("klikken op hamburger opent het menu", () => {
+    render(<Nav />);
+    const btn = screen.getByLabelText("Menu openen");
+    fireEvent.click(btn);
+    expect(screen.getAllByText("Vacatures").length).toBeGreaterThan(0);
+  });
+});

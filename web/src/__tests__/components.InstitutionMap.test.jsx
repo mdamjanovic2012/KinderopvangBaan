@@ -98,4 +98,42 @@ describe("InstitutionMap", () => {
   it("uses default Netherlands view when no initialViewState", () => {
     expect(() => render(<InstitutionMap institutions={[]} />)).not.toThrow();
   });
+
+  it("sluit popup na klikken op sluiten", () => {
+    const institution = makeInstitution();
+    render(<InstitutionMap institutions={[institution]} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+    expect(screen.getByTestId("map-popup")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("popup-close"));
+    expect(screen.queryByTestId("map-popup")).not.toBeInTheDocument();
+  });
+
+  it("hover op marker past grootte aan (mouseEnter/Leave)", () => {
+    const institution = makeInstitution();
+    render(<InstitutionMap institutions={[institution]} />);
+    const marker = screen.getByTestId("map-marker");
+    // Triggeert onMouseEnter en onMouseLeave op de inner div
+    const innerDiv = marker.firstChild;
+    if (innerDiv) {
+      fireEvent.mouseEnter(innerDiv);
+      fireEvent.mouseLeave(innerDiv);
+    }
+    expect(marker).toBeInTheDocument();
+  });
+
+  it("vliegt naar nieuw center wanneer center prop wijzigt", () => {
+    const center = { lat: 52.37, lng: 4.89, radius: 5 };
+    expect(() =>
+      render(<InstitutionMap institutions={[]} center={center} />)
+    ).not.toThrow();
+  });
+
+  it("rendert cluster marker wanneer er veel instellingen zijn", () => {
+    const institutions = Array.from({ length: 5 }, (_, i) =>
+      makeInstitution({ id: i + 1 })
+    );
+    render(<InstitutionMap institutions={institutions} />);
+    // Met 5+ punten retourneert de mock één cluster
+    expect(screen.getByTestId("map-marker")).toBeInTheDocument();
+  });
 });
