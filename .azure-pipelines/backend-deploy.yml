@@ -19,23 +19,21 @@ pool:
   name: MacLocal
 
 variables:
-  # ── Secrets: ADO Library → Variable Groups → "backend-secrets"
-  # Bevat: DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
-  # Kan worden gekoppeld aan Azure Key Vault (Library → Link secrets from Key Vault)
-  - group: backend-secrets
+  # ── Lokale test-database (MacLocal agent, zelfde machine als dev)
+  # Geen secrets — lege wachtwoord, lokale Postgres
+  DB_NAME: "kinderopvangbaan"
+  DB_USER: "milosdamjanovic"
+  DB_PASSWORD: ""
+  DB_HOST: "localhost"
+  DB_PORT: "5432"
 
-  # ── Niet-geheime pipeline-variabelen
-  - name: AZURE_WEBAPP_NAME
-    value: "kinderopvangbaan-api"
-  - name: ARTIFACT_NAME
-    value: "backend-build"
+  # ── Azure App Service deploy
+  AZURE_WEBAPP_NAME: "kinderopvangbaan-api"
+  ARTIFACT_NAME: "backend-build"
   # Semantic version: stel MAJOR en MINOR in via pipeline UI, PATCH = build counter
-  - name: MAJOR
-    value: "1"
-  - name: MINOR
-    value: "0"
-  - name: VERSION
-    value: "$(MAJOR).$(MINOR).$(Build.BuildId)"
+  MAJOR: "1"
+  MINOR: "0"
+  VERSION: "$(MAJOR).$(MINOR).$(Build.BuildId)"
 
 stages:
   # ─────────────────────────────────────────
