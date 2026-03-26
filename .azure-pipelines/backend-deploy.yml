@@ -38,22 +38,19 @@ stages:
         steps:
           - script: |
               python3 -m venv $(Agent.TempDirectory)/venv
-              source $(Agent.TempDirectory)/venv/bin/activate
-              pip install --quiet -r $(Build.SourcesDirectory)/backend/requirements.txt
-              pip install --quiet bandit
-            displayName: Install dependencies
-
-          - script: |
-              source $(Agent.TempDirectory)/venv/bin/activate
-              bandit -r $(Build.SourcesDirectory)/backend/ \
+              $(Agent.TempDirectory)/venv/bin/pip install --quiet \
+                -r $(Build.SourcesDirectory)/backend/requirements.txt bandit
+              $(Agent.TempDirectory)/venv/bin/bandit \
+                -r $(Build.SourcesDirectory)/backend/ \
                 --exclude $(Build.SourcesDirectory)/backend/tests \
                 -f json \
                 -o $(Build.ArtifactStagingDirectory)/bandit-report.json || true
               # Fail pipeline on high-severity findings
-              bandit -r $(Build.SourcesDirectory)/backend/ \
+              $(Agent.TempDirectory)/venv/bin/bandit \
+                -r $(Build.SourcesDirectory)/backend/ \
                 --exclude $(Build.SourcesDirectory)/backend/tests \
                 --severity-level high
-            displayName: Bandit security scan
+            displayName: Install dependencies & Bandit security scan
 
           - publish: $(Build.ArtifactStagingDirectory)/bandit-report.json
             artifact: security-report
@@ -73,18 +70,14 @@ stages:
         steps:
           - script: |
               python3 -m venv $(Agent.TempDirectory)/venv
-              source $(Agent.TempDirectory)/venv/bin/activate
-              pip install --quiet -r $(Build.SourcesDirectory)/backend/requirements.txt
-            displayName: Install dependencies
-
-          - script: |
-              source $(Agent.TempDirectory)/venv/bin/activate
+              $(Agent.TempDirectory)/venv/bin/pip install --quiet \
+                -r $(Build.SourcesDirectory)/backend/requirements.txt
               cd $(Build.SourcesDirectory)/backend
-              pytest tests/ \
+              $(Agent.TempDirectory)/venv/bin/pytest tests/ \
                 --create-db \
                 --junitxml=$(Build.ArtifactStagingDirectory)/pytest-results.xml \
                 -q
-            displayName: Run pytest
+            displayName: Install dependencies & run pytest
             env:
               CI: "true"
 
