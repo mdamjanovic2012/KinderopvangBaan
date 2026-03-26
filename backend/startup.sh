@@ -21,13 +21,10 @@ python manage.py migrate --noinput
 # Collect static files
 python manage.py collectstatic --noinput
 
-# LRK enrichment — runs at most once per 30 days (timestamp in /home/.lrk_last_run)
-# Safe: only UPDATEs existing records, never deletes data
-python manage.py enrich_from_lrk || echo "LRK enrichment skipped or failed (non-blocking)"
-
-# Database backup to Azure Blob Storage — runs at most once per 7 days
-# Safe: read-only pg_dump, no data modified
-python manage.py backup_db || echo "DB backup skipped or failed (non-blocking)"
+# LRK enrichment + backup draaien op de achtergrond zodat gunicorn direct kan starten
+# Safe: beide commands hebben ingebouwde throttling (max 1x per 30/7 dagen)
+(python manage.py enrich_from_lrk || true) &
+(python manage.py backup_db || true) &
 
 # Start gunicorn
 gunicorn --bind=0.0.0.0:8000 --timeout=120 --workers=2 config.wsgi
