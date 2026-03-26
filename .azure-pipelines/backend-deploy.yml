@@ -71,7 +71,8 @@ stages:
           - script: |
               python3 -m venv $(Agent.TempDirectory)/venv
               $(Agent.TempDirectory)/venv/bin/pip install --quiet \
-                -r $(Build.SourcesDirectory)/backend/requirements.txt
+                -r $(Build.SourcesDirectory)/backend/requirements.txt \
+                pytest==9.0.2 pytest-django==4.12.0 pytest-cov==7.1.0 coverage==7.13.5
               cd $(Build.SourcesDirectory)/backend
               $(Agent.TempDirectory)/venv/bin/pytest tests/ \
                 --create-db \
