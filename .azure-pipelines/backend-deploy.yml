@@ -40,6 +40,7 @@ stages:
               python3 -m venv $(Agent.TempDirectory)/venv
               source $(Agent.TempDirectory)/venv/bin/activate
               pip install --quiet -r $(Build.SourcesDirectory)/backend/requirements.txt
+              pip install --quiet bandit
             displayName: Install dependencies
 
           - script: |
