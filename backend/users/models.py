@@ -57,6 +57,12 @@ class WorkerProfile(models.Model):
     # e.g. ["bso", "dagopvang", "peuterspeelzaal"]
     bevoegdheid = models.JSONField(default=list, blank=True)
 
+    # Opvangtype kwalificaties vanuit diplomacheck
+    # Waarden: "kdv", "bso", "0_2_jaar", "2_4_jaar"
+    opvangtype = models.JSONField(default=list, blank=True)
+    kdv_proof_required = models.BooleanField(default=False)
+    bso_proof_required = models.BooleanField(default=False)
+
     # Beschikbaarheidsdetails
     hours_per_week = models.PositiveSmallIntegerField(null=True, blank=True)
     immediate_available = models.BooleanField(default=False)
