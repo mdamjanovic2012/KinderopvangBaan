@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import dj_database_url
 import os
 
-load_dotenv()
+load_dotenv(override=False)  # CI env vars hebben prioriteit boven .env
 
 try:
     from config.config_local import *
