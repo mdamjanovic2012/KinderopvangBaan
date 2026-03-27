@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Nav from "@/components/Nav";
+import HomeDiplomaCheck from "@/components/HomeDiplomaCheck";
 
 export default function Home() {
   return (
@@ -63,6 +64,8 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      <HomeDiplomaCheck />
 
       {/* Waarom wij bestaan */}
       <section className="py-16 sm:py-24 px-6 bg-white">

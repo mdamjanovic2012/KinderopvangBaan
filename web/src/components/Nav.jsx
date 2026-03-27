@@ -39,6 +39,7 @@ export default function Nav() {
           <Link href="/map" className="hover:text-blue-700 transition-colors">Kaart</Link>
           <Link href="/jobs" className="hover:text-blue-700 transition-colors">Vacatures</Link>
           <Link href="/workers" className="hover:text-blue-700 transition-colors">Medewerkers</Link>
+          <Link href="/diplomacheck" className="hover:text-blue-700 transition-colors">Diplomacheck</Link>
 
           {!loading && (
             user ? (
@@ -92,6 +93,7 @@ export default function Nav() {
             <Link href="/map" className="block py-2.5 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors">Kaart</Link>
             <Link href="/jobs" className="block py-2.5 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors">Vacatures</Link>
             <Link href="/workers" className="block py-2.5 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors">Medewerkers</Link>
+            <Link href="/diplomacheck" className="block py-2.5 text-sm font-medium text-gray-700 hover:text-blue-700 transition-colors">Diplomacheck</Link>
           </div>
 
           {!loading && (
