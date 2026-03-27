@@ -136,7 +136,8 @@ stages:
                 --exclude ".coverage" \
                 --exclude "coverage.xml" \
                 --exclude ".pytest_cache/*" \
-                --exclude ".lrk_last_run"
+                --exclude ".lrk_last_run" \
+                --exclude ".diploma_last_run"
             displayName: "Create artifact backend-$(VERSION).zip"
 
           - publish: $(Build.ArtifactStagingDirectory)/backend-$(VERSION).zip
