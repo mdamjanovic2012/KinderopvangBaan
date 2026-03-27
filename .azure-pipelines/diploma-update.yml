@@ -1,0 +1,129 @@
+################################################################################
+# Pipeline: Diploma Update (handmatig)
+#
+# Gebruik:
+#   - Draai handmatig via Azure DevOps UI → "Run pipeline"
+#   - force=true  → altijd importeren, ook als < 180 dagen geleden
+#   - force=false → zelfde skip-logica als de deploy pipeline
+#
+# Na een succesvolle run wordt de sentinel (.diploma_last_run) bijgewerkt.
+# De volgende deploy-pipeline ziet dit en slaat de update over.
+################################################################################
+
+trigger: none   # nooit automatisch — alleen handmatig starten
+
+parameters:
+  - name: force
+    displayName: "Forceer update (ook als < 180 dagen geleden)"
+    type: boolean
+    default: false
+  - name: cao_url
+    displayName: "CAO PDF URL (leeg = standaard 2025-2026)"
+    type: string
+    default: ""
+
+pool:
+  name: MacLocal
+
+variables:
+  AZURE_WEBAPP_NAME: "kinderopvangbaan-api"
+
+jobs:
+  - job: UpdateDiplomas
+    displayName: "Diploma update op productie"
+    timeoutInMinutes: 30
+
+    steps:
+      - task: AzureCLI@2
+        displayName: "Toon huidige diploma-update status"
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            CREDS=$(az webapp deployment list-publishing-credentials \
+              --name $(AZURE_WEBAPP_NAME) \
+              --resource-group kinderopvangbaan-rg \
+              --query "{u: publishingUserName, p: publishingPassword}" \
+              -o json)
+            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
+            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
+            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
+
+            RESULT=$(curl -s -X POST "$KUDU_URL" \
+              -u "$KUDU_USER:$KUDU_PASS" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"cd /home/site/wwwroot && python manage.py update_diplomas --status","dir":"/"}')
+            echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip()); print(r.get('Error','').strip())" 2>/dev/null || echo "$RESULT"
+
+      - task: AzureCLI@2
+        displayName: "Draai diploma update${{ if parameters.force }} (--force)${{ else }} (skip als < 180d)${{ endif }}"
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            CREDS=$(az webapp deployment list-publishing-credentials \
+              --name $(AZURE_WEBAPP_NAME) \
+              --resource-group kinderopvangbaan-rg \
+              --query "{u: publishingUserName, p: publishingPassword}" \
+              -o json)
+            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
+            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
+            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
+
+            # Bouw commando op basis van parameters
+            CMD="cd /home/site/wwwroot && python manage.py update_diplomas"
+            ${{ if parameters.force }}
+            CMD="$CMD --force"
+            ${{ endif }}
+            ${{ if ne(parameters.cao_url, '') }}
+            CMD="$CMD --cao-url '${{ parameters.cao_url }}'"
+            ${{ endif }}
+
+            echo "Uitvoeren: $CMD"
+            RESULT=$(curl -s -X POST "$KUDU_URL" \
+              -u "$KUDU_USER:$KUDU_PASS" \
+              -H "Content-Type: application/json" \
+              -d "{\"command\":\"$CMD\",\"dir\":\"/\"}")
+            OUTPUT=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null)
+            ERROR=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Error','').strip())" 2>/dev/null)
+            echo "$OUTPUT"
+            [ -n "$ERROR" ] && echo "STDERR: $ERROR"
+
+            # Fail als skip (forceer was niet gezet maar < 180 dagen)
+            if echo "$OUTPUT" | grep -q "DIPLOMA_SKIP"; then
+              echo "##[warning]Update overgeslagen (< 180 dagen). Gebruik force=true om te forceren."
+            elif echo "$OUTPUT" | grep -q "DIPLOMA_DONE"; then
+              echo "##[section]Diploma update succesvol afgerond."
+            fi
+
+      - task: AzureCLI@2
+        displayName: "Verifieer: toon nieuwe status na update"
+        condition: always()
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            CREDS=$(az webapp deployment list-publishing-credentials \
+              --name $(AZURE_WEBAPP_NAME) \
+              --resource-group kinderopvangbaan-rg \
+              --query "{u: publishingUserName, p: publishingPassword}" \
+              -o json)
+            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
+            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
+            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
+
+            RESULT=$(curl -s -X POST "$KUDU_URL" \
+              -u "$KUDU_USER:$KUDU_PASS" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"cd /home/site/wwwroot && python manage.py update_diplomas --status","dir":"/"}')
+            echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null || echo "$RESULT"
+
+            # Toon ook aantal diploma's in DB
+            COUNT_RESULT=$(curl -s -X POST "$KUDU_URL" \
+              -u "$KUDU_USER:$KUDU_PASS" \
+              -H "Content-Type: application/json" \
+              -d '{"command":"cd /home/site/wwwroot && python manage.py shell -c \"from diplomacheck.models import Diploma; print(f'"'"'Diploma count: {Diploma.objects.count()}'"'"')\"","dir":"/"}')
+            echo "$COUNT_RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null || echo "$COUNT_RESULT"
