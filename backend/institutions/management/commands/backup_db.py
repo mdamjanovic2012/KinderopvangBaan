@@ -1,31 +1,32 @@
 """
 Management command: backup_db
 
-Creates a pg_dump of the PostgreSQL database and uploads it to Azure Blob Storage.
-Runs at most once per 7 days (timestamp stored in BACKUP_TIMESTAMP_FILE).
-Keeps up to 30 backups; older ones are deleted automatically.
+Maakt een gecomprimeerde JSON-dump van alle Django-modellen via dumpdata
+en uploadt deze naar Azure Blob Storage (container: db-backups).
+Geen systeemafhankelijkheden — werkt puur via Python/Django.
 
-SAFE: read-only operation on the database, no data is modified.
+Interval: max 1x per 7 dagen (sentinel: /home/.backup_last_run)
+Retentie: max 30 backups; oudere worden automatisch verwijderd.
 
-Usage:
-    python manage.py backup_db              # skip if < 7 days
-    python manage.py backup_db --force      # run regardless
-    python manage.py backup_db --dry-run    # show what would happen, don't upload
+Gebruik:
+    python manage.py backup_db              # overslaan als < 7 dagen geleden
+    python manage.py backup_db --force      # altijd uitvoeren
+    python manage.py backup_db --dry-run    # tonen wat er zou gebeuren
 """
 
+import gzip
+import io
 import os
-import subprocess
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from django.conf import settings
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
-# Timestamp file — persists across deploys on Azure (/home/ is persistent)
 _DEFAULT_TIMESTAMP_FILE = Path(
     os.environ.get("BACKUP_TIMESTAMP_FILE", "/home/.backup_last_run")
-    if not settings.LOCAL
+    if not getattr(settings, "LOCAL", False)
     else str(Path(settings.BASE_DIR) / ".backup_last_run")
 )
 
@@ -35,117 +36,86 @@ BLOB_CONTAINER = "db-backups"
 
 
 class Command(BaseCommand):
-    help = "Backup PostgreSQL database to Azure Blob Storage."
+    help = "Backup alle Django-data naar Azure Blob Storage via dumpdata (geen pg_dump vereist)."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--dry-run", action="store_true",
-            help="Show what would happen without uploading.",
-        )
-        parser.add_argument(
-            "--force", action="store_true",
-            help="Run even if last backup was less than 7 days ago.",
-        )
+        parser.add_argument("--dry-run", action="store_true",
+                            help="Tonen wat er zou gebeuren zonder te uploaden.")
+        parser.add_argument("--force", action="store_true",
+                            help="Uitvoeren ook als < 7 dagen geleden.")
 
     def handle(self, *args, **options):
-        dry_run = options["dry_run"]
-        force = options["force"]
-
-        if not force and not dry_run and self._should_skip():
+        if not options["force"] and not options["dry_run"] and self._should_skip():
             self.stdout.write(self.style.WARNING(
-                f"Skipping: last backup was less than {BACKUP_INTERVAL_DAYS} days ago. "
-                "Use --force to override."
+                f"Overgeslagen: laatste backup was minder dan {BACKUP_INTERVAL_DAYS} "
+                "dagen geleden. Gebruik --force om te overschrijven."
             ))
             return
 
         connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING", "")
-        if not connection_string and not dry_run:
+        if not connection_string and not options["dry_run"]:
             self.stderr.write(self.style.ERROR(
-                "AZURE_STORAGE_CONNECTION_STRING not set. Skipping backup."
+                "AZURE_STORAGE_CONNECTION_STRING niet ingesteld. Backup overgeslagen."
             ))
-            return
-
-        db_url = self._get_db_url()
-        if not db_url:
-            self.stderr.write(self.style.ERROR("Could not determine database URL."))
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        blob_name = f"backup_{timestamp}.dump"
+        blob_name = f"backup_{timestamp}.json.gz"
 
-        self.stdout.write(f"Starting database backup → {blob_name}")
+        self.stdout.write(f"Database backup starten → {blob_name}")
 
-        if dry_run:
+        if options["dry_run"]:
             self.stdout.write(self.style.WARNING(
-                f"Dry run — would upload {blob_name} to container '{BLOB_CONTAINER}'."
+                f"Dry run — zou {blob_name} uploaden naar container '{BLOB_CONTAINER}'."
             ))
             return
 
-        with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            self._pg_dump(db_url, tmp_path)
-            size_mb = Path(tmp_path).stat().st_size / (1024 * 1024)
-            self.stdout.write(f"  Dump created: {size_mb:.1f} MB")
-
-            self._upload_blob(connection_string, blob_name, tmp_path)
-            self.stdout.write(self.style.SUCCESS(f"  Uploaded {blob_name}"))
-
-            self._prune_old_backups(connection_string)
-            self._write_timestamp()
-            self.stdout.write(self.style.SUCCESS("Backup complete."))
-
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    def _get_db_url(self):
-        db = settings.DATABASES.get("default", {})
-        engine = db.get("ENGINE", "")
-        if "postgresql" not in engine and "postgis" not in engine:
-            return None
-        host = db.get("HOST", "localhost")
-        port = db.get("PORT", "5432")
-        name = db.get("NAME", "")
-        user = db.get("USER", "")
-        password = db.get("PASSWORD", "")
-        return f"postgresql://{user}:{password}@{host}:{port}/{name}"
-
-    def _pg_dump(self, db_url, output_path):
-        result = subprocess.run(
-            ["pg_dump", "--format=custom", "--no-password", db_url,
-             "--file", output_path],
-            capture_output=True,
-            text=True,
-            timeout=300,
+        # Dump alle data via Django dumpdata → in-memory buffer
+        buf = io.StringIO()
+        call_command(
+            "dumpdata",
+            natural_foreign=True,
+            natural_primary=True,
+            indent=2,
+            stdout=buf,
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"pg_dump failed: {result.stderr}")
+        json_data = buf.getvalue().encode("utf-8")
 
-    def _upload_blob(self, connection_string, blob_name, file_path):
+        # Comprimeer met gzip
+        compressed = io.BytesIO()
+        with gzip.GzipFile(fileobj=compressed, mode="wb") as gz:
+            gz.write(json_data)
+        size_mb = compressed.tell() / (1024 * 1024)
+        compressed.seek(0)
+
+        self.stdout.write(f"  Dump aangemaakt: {size_mb:.1f} MB (gecomprimeerd)")
+
+        # Upload naar Azure Blob Storage
+        self._upload_blob(connection_string, blob_name, compressed)
+        self.stdout.write(self.style.SUCCESS(f"  Geüpload: {blob_name}"))
+
+        self._prune_old_backups(connection_string)
+        self._write_timestamp()
+        self.stdout.write(self.style.SUCCESS("Backup klaar."))
+
+    def _upload_blob(self, connection_string, blob_name, data):
         from azure.storage.blob import BlobServiceClient
         client = BlobServiceClient.from_connection_string(connection_string)
         container = client.get_container_client(BLOB_CONTAINER)
-        with open(file_path, "rb") as data:
-            container.upload_blob(name=blob_name, data=data, overwrite=True)
+        container.upload_blob(name=blob_name, data=data, overwrite=True)
 
     def _prune_old_backups(self, connection_string):
         from azure.storage.blob import BlobServiceClient
         client = BlobServiceClient.from_connection_string(connection_string)
         container = client.get_container_client(BLOB_CONTAINER)
-
         blobs = sorted(
             container.list_blobs(),
             key=lambda b: b.last_modified,
             reverse=True,
         )
-        to_delete = blobs[BACKUP_RETENTION_COUNT:]
-        for blob in to_delete:
+        for blob in blobs[BACKUP_RETENTION_COUNT:]:
             container.delete_blob(blob.name)
-            self.stdout.write(f"  Pruned old backup: {blob.name}")
+            self.stdout.write(f"  Oude backup verwijderd: {blob.name}")
 
     def _should_skip(self):
         ts_file = _DEFAULT_TIMESTAMP_FILE
@@ -163,4 +133,4 @@ class Command(BaseCommand):
             ts_file.parent.mkdir(parents=True, exist_ok=True)
             ts_file.write_text(datetime.now().isoformat())
         except OSError as e:
-            self.stderr.write(f"Warning: could not write timestamp file: {e}")
+            self.stderr.write(f"Waarschuwing: kon timestamp niet schrijven: {e}")
