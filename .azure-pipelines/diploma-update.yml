@@ -17,10 +17,6 @@ parameters:
     displayName: "Forceer update (ook als < 180 dagen geleden)"
     type: boolean
     default: false
-  - name: cao_url
-    displayName: "CAO PDF URL (leeg = standaard 2025-2026)"
-    type: string
-    default: ""
 
 pool:
   name: MacLocal
@@ -72,13 +68,9 @@ jobs:
             KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
             KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
 
-            # Bouw commando op basis van parameters
             CMD="cd /home/site/wwwroot && python manage.py update_diplomas"
             ${{ if parameters.force }}
             CMD="$CMD --force"
-            ${{ endif }}
-            ${{ if ne(parameters.cao_url, '') }}
-            CMD="$CMD --cao-url '${{ parameters.cao_url }}'"
             ${{ endif }}
 
             echo "Uitvoeren: $CMD"
@@ -91,7 +83,6 @@ jobs:
             echo "$OUTPUT"
             [ -n "$ERROR" ] && echo "STDERR: $ERROR"
 
-            # Fail als skip (forceer was niet gezet maar < 180 dagen)
             if echo "$OUTPUT" | grep -q "DIPLOMA_SKIP"; then
               echo "##[warning]Update overgeslagen (< 180 dagen). Gebruik force=true om te forceren."
             elif echo "$OUTPUT" | grep -q "DIPLOMA_DONE"; then
@@ -99,7 +90,7 @@ jobs:
             fi
 
       - task: AzureCLI@2
-        displayName: "Verifieer: toon nieuwe status na update"
+        displayName: "Verifieer: status + aantal diploma's na update"
         condition: always()
         inputs:
           azureSubscription: AzureServiceConnection
@@ -121,7 +112,6 @@ jobs:
               -d '{"command":"cd /home/site/wwwroot && python manage.py update_diplomas --status","dir":"/"}')
             echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null || echo "$RESULT"
 
-            # Toon ook aantal diploma's in DB
             COUNT_RESULT=$(curl -s -X POST "$KUDU_URL" \
               -u "$KUDU_USER:$KUDU_PASS" \
               -H "Content-Type: application/json" \
