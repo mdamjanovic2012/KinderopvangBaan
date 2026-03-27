@@ -6,8 +6,8 @@
 #   - force=true  → altijd importeren, ook als < 180 dagen geleden
 #   - force=false → zelfde skip-logica als de deploy pipeline
 #
-# Na een succesvolle run wordt de sentinel (.diploma_last_run) bijgewerkt.
-# De volgende deploy-pipeline ziet dit en slaat de update over.
+# Verbinding: SSH-tunnel naar app container via az webapp create-remote-connection
+# (wachtwoord: Docker!) — NIET Kudu SCM (Python niet beschikbaar in Kudu).
 ################################################################################
 
 trigger: none   # nooit automatisch — alleen handmatig starten
@@ -30,90 +30,54 @@ jobs:
     timeoutInMinutes: 30
 
     steps:
+      - script: |
+          which sshpass || brew install hudochenkov/sshpass/sshpass
+        displayName: "Zorg dat sshpass beschikbaar is"
+
       - task: AzureCLI@2
-        displayName: "Toon huidige diploma-update status"
+        displayName: "Diploma update via SSH${{ if parameters.force }} (--force)${{ else }} (skip als < 180d)${{ endif }}"
         inputs:
           azureSubscription: AzureServiceConnection
           scriptType: bash
           scriptLocation: inlineScript
           inlineScript: |
-            CREDS=$(az webapp deployment list-publishing-credentials \
+            # ── Open SSH-tunnel naar app container (niet Kudu SCM) ──────────────
+            az webapp create-remote-connection \
               --name $(AZURE_WEBAPP_NAME) \
               --resource-group kinderopvangbaan-rg \
-              --query "{u: publishingUserName, p: publishingPassword}" \
-              -o json)
-            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
-            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
-            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
+              --port 2222 &
+            TUNNEL_PID=$!
+            echo "SSH-tunnel gestart (PID $TUNNEL_PID), wacht 12s..."
+            sleep 12
 
-            RESULT=$(curl -s -X POST "$KUDU_URL" \
-              -u "$KUDU_USER:$KUDU_PASS" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"cd /home/site/wwwroot && python manage.py update_diplomas --status","dir":"/"}')
-            echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip()); print(r.get('Error','').strip())" 2>/dev/null || echo "$RESULT"
+            ssh_run() {
+              sshpass -p "Docker!" ssh \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -p 2222 root@127.0.0.1 "$1"
+            }
 
-      - task: AzureCLI@2
-        displayName: "Draai diploma update${{ if parameters.force }} (--force)${{ else }} (skip als < 180d)${{ endif }}"
-        inputs:
-          azureSubscription: AzureServiceConnection
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            CREDS=$(az webapp deployment list-publishing-credentials \
-              --name $(AZURE_WEBAPP_NAME) \
-              --resource-group kinderopvangbaan-rg \
-              --query "{u: publishingUserName, p: publishingPassword}" \
-              -o json)
-            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
-            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
-            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
+            # GDAL/GEOS setup — wordt op de remote uitgevoerd
+            GDAL_SETUP='GDAL_SO=$(find /usr/lib -name "libgdal.so*" 2>/dev/null | head -1); GEOS_SO=$(find /usr/lib -name "libgeos_c.so*" 2>/dev/null | head -1); [ -n "$GDAL_SO" ] && export GDAL_LIBRARY_PATH="$GDAL_SO"; [ -n "$GEOS_SO" ] && export GEOS_LIBRARY_PATH="$GEOS_SO"'
 
-            CMD="cd /home/site/wwwroot && python manage.py update_diplomas"
+            # ── Stap 1: Status vóór update ──────────────────────────────────────
+            echo "=== STATUS VOOR UPDATE ==="
+            ssh_run "cd /home/site/wwwroot; $GDAL_SETUP; python manage.py update_diplomas --status" || true
+
+            # ── Stap 2: Draai diploma update ────────────────────────────────────
+            echo "=== DIPLOMA UPDATE ==="
             ${{ if parameters.force }}
-            CMD="$CMD --force"
+            ssh_run "cd /home/site/wwwroot; $GDAL_SETUP; python manage.py update_diplomas --force"
+            ${{ else }}
+            ssh_run "cd /home/site/wwwroot; $GDAL_SETUP; python manage.py update_diplomas"
             ${{ endif }}
+            UPDATE_EXIT=$?
 
-            echo "Uitvoeren: $CMD"
-            RESULT=$(curl -s -X POST "$KUDU_URL" \
-              -u "$KUDU_USER:$KUDU_PASS" \
-              -H "Content-Type: application/json" \
-              -d "{\"command\":\"$CMD\",\"dir\":\"/\"}")
-            OUTPUT=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null)
-            ERROR=$(echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Error','').strip())" 2>/dev/null)
-            echo "$OUTPUT"
-            [ -n "$ERROR" ] && echo "STDERR: $ERROR"
+            # ── Stap 3: Verifieer na update ─────────────────────────────────────
+            echo "=== STATUS NA UPDATE ==="
+            ssh_run "cd /home/site/wwwroot; $GDAL_SETUP; python manage.py update_diplomas --status" || true
+            ssh_run "cd /home/site/wwwroot; $GDAL_SETUP; python manage.py shell -c 'from diplomacheck.models import Diploma; c=Diploma.objects.count(); print(\"Diploma count:\", c)'" || true
 
-            if echo "$OUTPUT" | grep -q "DIPLOMA_SKIP"; then
-              echo "##[warning]Update overgeslagen (< 180 dagen). Gebruik force=true om te forceren."
-            elif echo "$OUTPUT" | grep -q "DIPLOMA_DONE"; then
-              echo "##[section]Diploma update succesvol afgerond."
-            fi
-
-      - task: AzureCLI@2
-        displayName: "Verifieer: status + aantal diploma's na update"
-        condition: always()
-        inputs:
-          azureSubscription: AzureServiceConnection
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            CREDS=$(az webapp deployment list-publishing-credentials \
-              --name $(AZURE_WEBAPP_NAME) \
-              --resource-group kinderopvangbaan-rg \
-              --query "{u: publishingUserName, p: publishingPassword}" \
-              -o json)
-            KUDU_USER=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['u'])")
-            KUDU_PASS=$(echo "$CREDS" | python3 -c "import sys,json; print(json.load(sys.stdin)['p'])")
-            KUDU_URL="https://$(AZURE_WEBAPP_NAME).scm.azurewebsites.net/api/command"
-
-            RESULT=$(curl -s -X POST "$KUDU_URL" \
-              -u "$KUDU_USER:$KUDU_PASS" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"cd /home/site/wwwroot && python manage.py update_diplomas --status","dir":"/"}')
-            echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null || echo "$RESULT"
-
-            COUNT_RESULT=$(curl -s -X POST "$KUDU_URL" \
-              -u "$KUDU_USER:$KUDU_PASS" \
-              -H "Content-Type: application/json" \
-              -d '{"command":"cd /home/site/wwwroot && python manage.py shell -c \"from diplomacheck.models import Diploma; print(f'"'"'Diploma count: {Diploma.objects.count()}'"'"')\"","dir":"/"}')
-            echo "$COUNT_RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('Output','').strip())" 2>/dev/null || echo "$COUNT_RESULT"
+            # ── Sluit tunnel ────────────────────────────────────────────────────
+            kill $TUNNEL_PID 2>/dev/null || true
+            exit $UPDATE_EXIT
