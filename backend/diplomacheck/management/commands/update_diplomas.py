@@ -21,6 +21,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 # Max 1x per 6 maanden (180 dagen)
 INTERVAL_DAYS = 180
@@ -112,39 +113,69 @@ class Command(BaseCommand):
                 )
                 return
 
+        from diplomacheck.models import Diploma
+
         self.stdout.write(self.style.MIGRATE_HEADING("=== Diploma-update gestart ==="))
         if last:
             self.stdout.write(f"Vorige run: {last} ({days_ago} dagen geleden)")
         else:
             self.stdout.write("Vorige run: nooit")
 
-        # ── Stap 1: kinderopvang-werkt.nl API ────────────────────────────────
-        self.stdout.write("\n[1/2] Import via kinderopvang-werkt.nl API...")
-        try:
-            call_command(
-                "import_diplomacheck_api",
-                **{"dry_run": options["dry_run"], "clear": False},
-            )
-        except Exception as e:
-            self.stderr.write(f"API import mislukt: {e}")
+        count_before = Diploma.objects.count()
+        self.stdout.write(f"Diploma's vóór import: {count_before}")
 
-        # ── Stap 2: officieel CAO PDF bijlage 13-1 ───────────────────────────
-        self.stdout.write("\n[2/2] Import via CAO PDF...")
-        try:
-            call_command(
-                "import_cao_pdf",
-                url=options["cao_url"],
-                **{"dry_run": options["dry_run"], "clear": False},
-            )
-        except Exception as e:
-            self.stderr.write(f"PDF import mislukt: {e}")
+        if options["dry_run"]:
+            # Dry-run hoeft geen transactie — niets wordt opgeslagen
+            self.stdout.write("\n[1/2] Import via kinderopvang-werkt.nl API (dry-run)...")
+            call_command("import_diplomacheck_api", dry_run=True, clear=False)
+            self.stdout.write("\n[2/2] Import via CAO PDF (dry-run)...")
+            call_command("import_cao_pdf", url=options["cao_url"], dry_run=True, clear=False)
+            self.stdout.write("\n=== Dry-run klaar — niets opgeslagen ===")
+            return
 
-        if not options["dry_run"]:
-            _write_sentinel()
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"\nDIPLOMA_DONE: sentinel geschreven op {date.today()} → {_SENTINEL}"
+        # ── Import in één atomaire transactie ────────────────────────────────
+        # Als het aantal diploma's daalt na de import → automatisch rollback.
+        # Bestaande diploma's blijven altijd bewaard.
+        count_after = count_before
+
+        try:
+            with transaction.atomic():
+                self.stdout.write("\n[1/2] Import via kinderopvang-werkt.nl API...")
+                call_command("import_diplomacheck_api", dry_run=False, clear=False)
+
+                self.stdout.write("\n[2/2] Import via CAO PDF...")
+                call_command("import_cao_pdf", url=options["cao_url"], dry_run=False, clear=False)
+
+                count_after = Diploma.objects.count()
+                added = count_after - count_before
+
+                if count_after < count_before:
+                    # Rollback — transactie wordt teruggedraaid
+                    raise ValueError(
+                        f"DIPLOMA_ROLLBACK: aantal gedaald van {count_before} naar {count_after}. "
+                        "Alle wijzigingen teruggedraaid."
+                    )
+
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"\nDiploma's na import: {count_after} (+{added} nieuw)"
+                    )
+                )
+
+        except ValueError as e:
+            self.stderr.write(self.style.ERROR(str(e)))
+            self.stderr.write(
+                self.style.WARNING(
+                    f"Database hersteld naar {count_before} diploma's. "
+                    "Sentinel NIET bijgewerkt — volgende deploy probeert opnieuw."
                 )
             )
-        else:
-            self.stdout.write("\n=== Dry-run klaar — niets opgeslagen ===")
+            return
+
+        # ── Sentinel pas schrijven ná succesvolle commit ──────────────────────
+        _write_sentinel()
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"DIPLOMA_DONE: sentinel geschreven op {date.today()} → {_SENTINEL}"
+            )
+        )
