@@ -11,6 +11,7 @@ jest.mock("@/context/AuthContext", () => ({
 
 jest.mock("next/navigation", () => ({
   useRouter: jest.fn(() => ({ push: jest.fn() })),
+  useSearchParams: jest.fn(() => ({ get: jest.fn(() => null) })),
 }));
 
 jest.mock("next/link", () => {
@@ -92,7 +93,7 @@ describe("RegisterPage — stap 2: gegevens formulier", () => {
   });
 
   it("shows gegevens form after role selection", () => {
-    expect(screen.getByText("Jouw gegevens")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("jouwgebruikersnaam")).toBeInTheDocument();
   });
 
   it("shows selected role in header", () => {
@@ -186,7 +187,7 @@ describe("Registratie — voornaam & achternaam", () => {
 
   it("toont voornaam invoerveld op stap 2", () => {
     goToStep2();
-    expect(screen.getByPlaceholderText("Jouw voornaam")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Voornaam")).toBeInTheDocument();
   });
 
   it("toont achternaam invoerveld op stap 2", () => {
@@ -200,7 +201,7 @@ describe("Registratie — voornaam & achternaam", () => {
     render(<RegisterPage />);
     fireEvent.click(screen.getAllByText("Ik ben een kinderopvang professional")[0]);
 
-    fireEvent.change(screen.getByPlaceholderText("Jouw voornaam"), { target: { value: "Miki" } });
+    fireEvent.change(screen.getByPlaceholderText("Voornaam"), { target: { value: "Miki" } });
     fireEvent.change(screen.getByPlaceholderText("Achternaam"), { target: { value: "Janssen" } });
     fireEvent.change(screen.getAllByPlaceholderText("jouwgebruikersnaam")[0], { target: { value: "mikitest" } });
     fireEvent.change(screen.getAllByPlaceholderText("jouw@email.nl")[0], { target: { value: "miki@test.nl" } });
