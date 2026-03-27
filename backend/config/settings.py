@@ -20,6 +20,17 @@ CSRF_TRUSTED_ORIGINS = [
     f"https://{h}" for h in ALLOWED_HOSTS if h not in ("localhost", "127.0.0.1")
 ] + ["http://localhost:8000", "http://127.0.0.1:8000"]
 
+# Azure App Service zit achter een reverse proxy — laat Django HTTPS detecteren
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Cookies alleen via HTTPS in productie, HTTP toestaan in dev
+_is_prod = not DEBUG
+SESSION_COOKIE_SECURE = _is_prod
+CSRF_COOKIE_SECURE = _is_prod
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
 INSTALLED_APPS = [
     "unfold",
     "unfold.contrib.filters",
