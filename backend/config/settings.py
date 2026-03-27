@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "users",
     "institutions",
     "jobs",
+    "diplomacheck",
 ]
 
 MIDDLEWARE = [

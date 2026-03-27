@@ -21,10 +21,10 @@ python manage.py migrate --noinput
 # Collect static files
 python manage.py collectstatic --noinput
 
-# LRK enrichment + backup draaien op de achtergrond zodat gunicorn direct kan starten
-# Safe: beide commands hebben ingebouwde throttling (max 1x per 30/7 dagen)
-(python manage.py enrich_from_lrk || true) &
-(python manage.py backup_db || true) &
+# Achtergrondtaken — ingebouwde throttling, blokkeren gunicorn niet
+(python manage.py enrich_from_lrk || true) &    # max 1x per 30 dagen
+(python manage.py update_diplomas || true) &      # max 1x per kalenderjaar
+(python manage.py backup_db || true) &            # max 1x per 7 dagen
 
 # Start gunicorn
 gunicorn --bind=0.0.0.0:8000 --timeout=120 --workers=2 config.wsgi

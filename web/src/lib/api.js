@@ -20,6 +20,9 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  get: (path) => request(path),
+
+
   // Institutions
   institutions: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
