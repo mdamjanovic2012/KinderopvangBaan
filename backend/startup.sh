@@ -24,7 +24,7 @@ python manage.py collectstatic --noinput
 # Achtergrondtaken — ingebouwde throttling, blokkeren gunicorn niet
 (python manage.py enrich_from_lrk || true) &    # max 1x per 30 dagen
 (python manage.py backup_db || true) &            # max 1x per 7 dagen
-# update_diplomas wordt beheerd door de ADO pipeline (post-deploy + handmatig)
+(python manage.py update_diplomas || true) &      # max 1x per 180 dagen
 
 # Start gunicorn
 gunicorn --bind=0.0.0.0:8000 --timeout=120 --workers=2 config.wsgi
