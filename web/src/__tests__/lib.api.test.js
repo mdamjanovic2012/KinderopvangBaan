@@ -152,28 +152,37 @@ describe("api.nearbyJobs", () => {
   });
 });
 
-describe("api.applyToJob", () => {
-  it("posts to apply endpoint", async () => {
-    mockFetch({ id: 1, status: "pending" });
-    await api.applyToJob(5, "Motivatiebrief");
+describe("api.clickJob", () => {
+  it("posts to click endpoint", async () => {
+    mockFetch({ source_url: "https://kinderdam.nl/vacature/1" });
+    await api.clickJob(5);
     const [url, opts] = fetch.mock.calls[0];
-    expect(url).toContain("/jobs/5/apply/");
+    expect(url).toContain("/jobs/5/click/");
     expect(opts.method).toBe("POST");
-    expect(JSON.parse(opts.body).cover_letter).toBe("Motivatiebrief");
+  });
+
+  it("returns source_url", async () => {
+    mockFetch({ source_url: "https://kinderdam.nl/vacature/1" });
+    const data = await api.clickJob(5);
+    expect(data.source_url).toBe("https://kinderdam.nl/vacature/1");
   });
 
   it("attaches bearer token when in localStorage", async () => {
     localStorage.setItem("kb_access", "test_token_xyz");
-    mockFetch({ id: 1, status: "pending" });
-    await api.applyToJob(5, "");
+    mockFetch({ source_url: "https://example.com" });
+    await api.clickJob(5);
     const [, opts] = fetch.mock.calls[0];
     expect(opts.headers.Authorization).toBe("Bearer test_token_xyz");
   });
+});
 
-  it("no Authorization header when no token", async () => {
-    mockFetch({ id: 1 });
-    await api.applyToJob(5, "");
-    const [, opts] = fetch.mock.calls[0];
-    expect(opts.headers.Authorization).toBeUndefined();
+describe("api.companies", () => {
+  it("fetches companies list", async () => {
+    mockFetch([{ id: 1, name: "Kinderdam" }]);
+    await api.companies();
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/jobs/companies/"),
+      expect.any(Object)
+    );
   });
 });

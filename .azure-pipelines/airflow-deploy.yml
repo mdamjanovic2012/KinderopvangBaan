@@ -1,0 +1,118 @@
+################################################################################
+# Pipeline: Airflow deploy naar Azure Container Instance
+#
+# Wat het doet:
+#   1. Bouw Docker image van airflow/
+#   2. Push naar Azure Container Registry (ACR)
+#   3. Deploy/herstart ACI container met nieuwe image
+#
+# Vereiste pipeline variabelen (sla op als secret):
+#   ACR_NAME          — naam van de ACR (bijv. kbregistry)
+#   ACI_RESOURCE_GROUP — resource group (bijv. kinderopvangbaan-rg)
+#   ACI_CONTAINER_NAME — naam van de ACI (bijv. kb-airflow)
+#   AIRFLOW_DB_URL    — PostgreSQL URL voor Airflow metadata DB
+#   AIRFLOW_SECRET_KEY — geheime sleutel voor Airflow webserver
+#   DATABASE_URL      — app database URL (voor scrapers)
+################################################################################
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - airflow/**
+
+pool:
+  name: MacLocal
+
+variables:
+  IMAGE_NAME: "kb-airflow"
+  IMAGE_TAG: "$(Build.BuildId)"
+  ACR_LOGIN_SERVER: "$(ACR_NAME).azurecr.io"
+
+jobs:
+  - job: BuildAndDeploy
+    displayName: "Build + deploy Airflow naar ACI"
+    timeoutInMinutes: 30
+
+    steps:
+      - task: AzureCLI@2
+        displayName: "Build en push Docker image naar ACR"
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            az acr login --name $(ACR_NAME)
+
+            docker build \
+              -t $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG) \
+              -t $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):latest \
+              airflow/
+
+            docker push $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)
+            docker push $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):latest
+
+            echo "Image gepushed: $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)"
+
+      - task: AzureCLI@2
+        displayName: "Deploy ACI container (create of update)"
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            ACR_PASSWORD=$(az acr credential show --name $(ACR_NAME) --query "passwords[0].value" -o tsv)
+
+            # Verwijder bestaande container als die bestaat (ACI ondersteunt geen in-place update)
+            az container delete \
+              --name $(ACI_CONTAINER_NAME) \
+              --resource-group $(ACI_RESOURCE_GROUP) \
+              --yes 2>/dev/null || true
+
+            az container create \
+              --name $(ACI_CONTAINER_NAME) \
+              --resource-group $(ACI_RESOURCE_GROUP) \
+              --image $(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG) \
+              --registry-login-server $(ACR_LOGIN_SERVER) \
+              --registry-username $(ACR_NAME) \
+              --registry-password "$ACR_PASSWORD" \
+              --cpu 1 \
+              --memory 2 \
+              --os-type Linux \
+              --restart-policy Always \
+              --ports 8080 \
+              --environment-variables \
+                AIRFLOW__CORE__EXECUTOR=LocalExecutor \
+                AIRFLOW__CORE__LOAD_EXAMPLES=False \
+                AIRFLOW__WEBSERVER__EXPOSE_CONFIG=False \
+                AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="$(AIRFLOW_DB_URL)" \
+                AIRFLOW__WEBSERVER__SECRET_KEY="$(AIRFLOW_SECRET_KEY)" \
+                DATABASE_URL="$(DATABASE_URL)" \
+              --command-line "airflow standalone"
+
+            echo "ACI gestart: $(ACI_CONTAINER_NAME)"
+
+      - task: AzureCLI@2
+        displayName: "Verifieer: container draait"
+        condition: always()
+        inputs:
+          azureSubscription: AzureServiceConnection
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            sleep 15
+            STATUS=$(az container show \
+              --name $(ACI_CONTAINER_NAME) \
+              --resource-group $(ACI_RESOURCE_GROUP) \
+              --query "instanceView.state" -o tsv 2>/dev/null || echo "unknown")
+
+            echo "Container status: $STATUS"
+            if [ "$STATUS" != "Running" ]; then
+              echo "##[warning]Container status is niet 'Running': $STATUS"
+              az container logs \
+                --name $(ACI_CONTAINER_NAME) \
+                --resource-group $(ACI_RESOURCE_GROUP) \
+                --tail 50 2>/dev/null || true
+            fi

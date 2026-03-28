@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import Nav from "@/components/Nav";
 import { useAuth } from "@/context/AuthContext";
-import { CAO_FUNCTIONS, getCaoLabel } from "@/lib/caoFunctions";
+import { CAO_FUNCTIONS } from "@/lib/caoFunctions";
 
 const JOB_TYPE_OPTIONS = [
   { value: "", label: "Alle functies" },
@@ -33,15 +33,21 @@ const CONTRACT_LABELS = {
   temp: "Tijdelijk",
 };
 
-function JobCard({ job }) {
+function JobCard({ job, blurred = false }) {
   const daysAgo = Math.floor(
     (new Date() - new Date(job.created_at)) / (1000 * 60 * 60 * 24)
   );
 
   return (
     <Link
-      href={`/jobs/${job.id}`}
-      className="block bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:border-blue-200 hover:shadow-md transition-all group"
+      href={blurred ? "/register" : `/jobs/${job.id}`}
+      className={`block bg-white rounded-2xl p-5 border border-gray-100 shadow-sm transition-all group relative ${
+        blurred
+          ? "blur-sm pointer-events-none select-none"
+          : "hover:border-blue-200 hover:shadow-md"
+      }`}
+      tabIndex={blurred ? -1 : undefined}
+      aria-hidden={blurred}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -54,8 +60,8 @@ function JobCard({ job }) {
                 Uitgelicht
               </span>
             )}
-            {job.requires_vog && (
-              <span className="text-xs text-gray-400">VOG vereist</span>
+            {job.age_min != null && job.age_max != null && (
+              <span className="text-xs text-gray-400">{job.age_min}–{job.age_max} jaar</span>
             )}
           </div>
 
@@ -64,17 +70,19 @@ function JobCard({ job }) {
           </h3>
 
           <div className="text-sm text-gray-500 mb-3">
-            <span className="font-medium text-gray-700">{job.institution_name}</span>
-            {" · "}
-            {job.institution_city || job.city}
+            <span className="font-medium text-gray-700">{job.company_name}</span>
+            {job.location_name && job.location_name !== job.company_name && (
+              <> · <span>{job.location_name}</span></>
+            )}
+            {job.city && <> · {job.city}</>}
             {job.distance_km != null && (
               <span className="text-blue-600 font-medium"> · {job.distance_km} km</span>
             )}
           </div>
 
-          {job.description && (
+          {job.short_description && (
             <p className="text-sm text-gray-400 line-clamp-2 leading-relaxed">
-              {job.description}
+              {job.short_description}
             </p>
           )}
         </div>
@@ -84,11 +92,14 @@ function JobCard({ job }) {
             <div className="text-sm font-semibold text-gray-900 mb-1">
               €{job.salary_min}
               {job.salary_max && job.salary_max !== job.salary_min && `–${job.salary_max}`}
-              <span className="text-xs font-normal text-gray-400">/u</span>
             </div>
           )}
-          {job.hours_per_week && (
-            <div className="text-xs text-gray-400">{job.hours_per_week} uur/week</div>
+          {(job.hours_min || job.hours_max) && (
+            <div className="text-xs text-gray-400">
+              {job.hours_min && job.hours_max && job.hours_min !== job.hours_max
+                ? `${job.hours_min}–${job.hours_max} uur`
+                : `${job.hours_min || job.hours_max} uur`}
+            </div>
           )}
           <div className="text-xs text-gray-300 mt-2">
             {daysAgo === 0 ? "Vandaag" : daysAgo === 1 ? "Gisteren" : `${daysAgo}d geleden`}
@@ -109,7 +120,6 @@ async function lookupPostcode(postcode) {
     const json = await res.json();
     const doc = json?.response?.docs?.[0];
     if (!doc?.centroide_ll) return null;
-    // centroide_ll = "POINT(lon lat)"
     const match = doc.centroide_ll.match(/POINT\(([\d.]+)\s+([\d.]+)\)/);
     if (!match) return null;
     return { lng: parseFloat(match[1]), lat: parseFloat(match[2]) };
@@ -119,10 +129,12 @@ async function lookupPostcode(postcode) {
 }
 
 export default function JobsPage() {
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const profileRadius = profile?.work_radius_km ?? null;
 
   const [jobs, setJobs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ job_type: "", contract_type: "", radius: profileRadius ?? 15 });
@@ -133,7 +145,6 @@ export default function JobsPage() {
     if (profileRadius) setFilters((f) => ({ ...f, radius: profileRadius }));
   }, [profileRadius]);
 
-  // Auto-fill locatie vanuit profiel postcode als ingelogd
   useEffect(() => {
     if (profile?.postcode && !userLocation) {
       lookupPostcode(profile.postcode).then((loc) => {
@@ -153,7 +164,11 @@ export default function JobsPage() {
     if (filters.contract_type) params.contract_type = filters.contract_type;
     if (search) params.search = search;
     api.jobs(params)
-      .then((data) => setJobs(data.results || data))
+      .then((data) => {
+        setJobs(data.results || []);
+        setTotal(data.total ?? (data.results || []).length);
+        setBlurred(data.blurred ?? false);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [filters, search]);
@@ -167,7 +182,11 @@ export default function JobsPage() {
       radius: filters.radius,
       type: filters.job_type || undefined,
     })
-      .then(setJobs)
+      .then((data) => {
+        setJobs(data.results || []);
+        setTotal(data.total ?? (data.results || []).length);
+        setBlurred(data.blurred ?? false);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [userLocation, filters]);
@@ -192,6 +211,8 @@ export default function JobsPage() {
     if (mode === "all") loadAll();
   };
 
+  const hiddenCount = total - jobs.length;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Nav />
@@ -199,7 +220,6 @@ export default function JobsPage() {
       {/* Filter bar */}
       <div className="bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-2 sm:gap-3 flex-wrap">
-          {/* Search */}
           <form onSubmit={handleSearchSubmit} className="w-full sm:flex-1 sm:min-w-48">
             <input
               type="text"
@@ -278,24 +298,19 @@ export default function JobsPage() {
       )}
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Vacatures kinderopvang</h1>
             <p className="text-sm text-gray-400 mt-0.5">
-              {loading ? "Laden..." : `${jobs.length} vacatures gevonden`}
+              {loading ? "Laden..." : `${total} vacatures gevonden`}
               {mode === "nearby" && userLocation && ` binnen ${filters.radius} km`}
             </p>
           </div>
-          <Link
-            href="/map"
-            className="text-sm text-blue-700 hover:underline"
-          >
+          <Link href="/map" className="text-sm text-blue-700 hover:underline">
             Bekijk kaart →
           </Link>
         </div>
 
-        {/* Jobs list */}
         {!loading && jobs.length === 0 && (
           <div className="text-center py-20 text-gray-400">
             <div className="text-4xl mb-3">🔍</div>
@@ -309,6 +324,37 @@ export default function JobsPage() {
             <JobCard key={job.id} job={job} />
           ))}
         </div>
+
+        {/* Blur CTA voor gasten */}
+        {blurred && !user && hiddenCount > 0 && (
+          <div className="relative mt-3">
+            {/* Voorbeeld van verborgen kaarten */}
+            <div className="space-y-3 pointer-events-none select-none">
+              {Array.from({ length: Math.min(hiddenCount, 3) }).map((_, i) => (
+                <div key={i} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm blur-sm h-24" />
+              ))}
+            </div>
+
+            {/* Overlay CTA */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-t from-gray-50 via-gray-50/80 to-transparent rounded-2xl px-4 py-8">
+              <p className="text-sm font-semibold text-gray-800 mb-1">
+                Nog <strong>{hiddenCount}</strong> vacatures verborgen
+              </p>
+              <p className="text-xs text-gray-500 mb-4 text-center">
+                Registreer gratis in 1 minuut en bekijk alle vacatures
+              </p>
+              <Link
+                href="/register"
+                className="bg-blue-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl hover:bg-blue-800 transition-colors"
+              >
+                Gratis registreren →
+              </Link>
+              <Link href="/login" className="mt-2 text-xs text-gray-400 hover:text-gray-600 underline">
+                Al een account? Inloggen
+              </Link>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
