@@ -65,7 +65,7 @@ def institution_client(api_client, institution_user):
 
 
 @pytest.fixture
-def institution(db, institution_user, amsterdam):
+def institution(db, amsterdam):
     from institutions.models import Institution
     return Institution.objects.create(
         name="Test BSO Amsterdam",
@@ -83,7 +83,7 @@ def institution(db, institution_user, amsterdam):
 
 
 @pytest.fixture
-def institution_rotterdam(db, institution_user, rotterdam):
+def institution_rotterdam(db, rotterdam):
     from institutions.models import Institution
     return Institution.objects.create(
         name="Test KDV Rotterdam",
@@ -99,22 +99,41 @@ def institution_rotterdam(db, institution_user, rotterdam):
 
 
 @pytest.fixture
-def job(db, institution, institution_user):
+def company(db):
+    from jobs.models import Company
+    return Company.objects.create(
+        name="Test Kinderopvang BV",
+        slug="test-kinderopvang",
+        website="https://www.testkinderopvang.nl",
+        job_board_url="https://www.testkinderopvang.nl/vacatures",
+        scraper_class="TestScraper",
+        is_active=True,
+    )
+
+
+@pytest.fixture
+def job(db, company, amsterdam):
     from jobs.models import Job
     return Job.objects.create(
-        institution=institution,
-        posted_by=institution_user,
+        company=company,
         title="Test BSO Medewerker",
         job_type="pm3",
         contract_type="parttime",
+        short_description="Korte omschrijving",
         description="Test job description",
-        location=institution.location,
-        city=institution.city,
-        salary_min=13.50,
-        salary_max=16.00,
-        hours_per_week=20,
+        location_name="BSO De Terp Amsterdam",
+        city="Amsterdam",
+        postcode="1012LG",
+        location=amsterdam,
+        salary_min=2700,
+        salary_max=3400,
+        hours_min=20,
+        hours_max=24,
         requires_vog=True,
+        source_url="https://www.testkinderopvang.nl/vacatures/test-bso-medewerker",
+        external_id="test-001",
         is_active=True,
+        is_expired=False,
     )
 
 

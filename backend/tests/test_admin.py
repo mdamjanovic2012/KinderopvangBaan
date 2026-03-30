@@ -8,8 +8,8 @@ from django.test import RequestFactory
 
 from institutions.admin import InstitutionAdmin, ReviewAdmin
 from institutions.models import Institution, Review
-from jobs.admin import JobAdmin, JobApplicationAdmin
-from jobs.models import Job, JobApplication
+from jobs.admin import JobAdmin
+from jobs.models import Company, Job
 from users.admin import CustomUserAdmin, WorkerProfileAdmin
 from users.models import User, WorkerProfile
 
@@ -35,15 +35,25 @@ def make_institution(name="Test BSO", lrk="LRK-TEST"):
     )
 
 
-def make_job(institution, user):
+def make_company(slug="test-co"):
+    return Company.objects.create(
+        name="Test BV",
+        slug=slug,
+        job_board_url="https://testbv.nl/vacatures",
+        scraper_class="TestScraper",
+    )
+
+
+def make_job(company, slug="test-pm-kdv"):
     return Job.objects.create(
-        institution=institution,
-        posted_by=user,
+        company=company,
         title="PM KDV",
         job_type="pm4",
         contract_type="fulltime",
         description="Test vacature",
         city="Amsterdam",
+        source_url=f"https://testbv.nl/vacatures/{slug}",
+        is_active=True,
     )
 
 
@@ -97,7 +107,8 @@ class TestInstitutionAdmin:
         inst = make_institution()
         qs = self.admin.get_queryset(self._get_request())
         obj = qs.get(pk=inst.pk)
-        assert self.admin.job_count(obj) == 0
+        # Jobs zijn nu aan Company gekoppeld, job_count geeft "—" terug
+        assert self.admin.job_count(obj) == "—"
 
     def test_avg_rating_display_no_reviews(self):
         inst = make_institution(lrk="LRK-NOREV")
@@ -156,93 +167,36 @@ class TestJobAdmin:
         assert "is_premium" in self.admin.list_display
 
     def test_activate_jobs_action(self):
-        inst = make_institution(lrk="LRK-JACT")
-        user = make_superuser()
-        job = make_job(inst, user)
+        company = make_company("co-act")
+        job = make_job(company, "pm-act")
         job.is_active = False
         job.save()
-        qs = Job.objects.filter(pk=job.pk)
-        self.admin.activate_jobs(None, qs)
+        self.admin.activate_jobs(None, Job.objects.filter(pk=job.pk))
         job.refresh_from_db()
         assert job.is_active is True
 
     def test_deactivate_jobs_action(self):
-        inst = make_institution(lrk="LRK-JDACT")
-        user = User.objects.create_user(username="poster2", password="x", role="institution")
-        job = make_job(inst, user)
-        qs = Job.objects.filter(pk=job.pk)
-        self.admin.deactivate_jobs(None, qs)
+        company = make_company("co-deact")
+        job = make_job(company, "pm-deact")
+        self.admin.deactivate_jobs(None, Job.objects.filter(pk=job.pk))
         job.refresh_from_db()
         assert job.is_active is False
 
     def test_mark_premium_action(self):
-        inst = make_institution(lrk="LRK-JPREM")
-        user = User.objects.create_user(username="poster3", password="x", role="institution")
-        job = make_job(inst, user)
-        qs = Job.objects.filter(pk=job.pk)
-        self.admin.mark_premium(None, qs)
+        company = make_company("co-prem")
+        job = make_job(company, "pm-prem")
+        self.admin.mark_premium(None, Job.objects.filter(pk=job.pk))
         job.refresh_from_db()
         assert job.is_premium is True
 
     def test_unmark_premium_action(self):
-        inst = make_institution(lrk="LRK-JUPREM")
-        user = User.objects.create_user(username="poster4", password="x", role="institution")
-        job = make_job(inst, user)
+        company = make_company("co-unprem")
+        job = make_job(company, "pm-unprem")
         job.is_premium = True
         job.save()
-        qs = Job.objects.filter(pk=job.pk)
-        self.admin.unmark_premium(None, qs)
+        self.admin.unmark_premium(None, Job.objects.filter(pk=job.pk))
         job.refresh_from_db()
         assert job.is_premium is False
-
-
-# ---------------------------------------------------------------------------
-# JobApplicationAdmin
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestJobApplicationAdmin:
-    def setup_method(self):
-        self.site = AdminSite()
-        self.admin = JobApplicationAdmin(JobApplication, self.site)
-
-    def test_job_institution_method(self):
-        inst = make_institution(lrk="LRK-APPINST")
-        poster = User.objects.create_user(username="poster5", password="x", role="institution")
-        applicant = User.objects.create_user(username="applic1", password="x", role="worker")
-        job = make_job(inst, poster)
-        app = JobApplication.objects.create(job=job, applicant=applicant, status="pending")
-        assert self.admin.job_institution(app) == inst.name
-
-    def test_mark_viewed_action(self):
-        inst = make_institution(lrk="LRK-APPVIEW")
-        poster = User.objects.create_user(username="poster6", password="x", role="institution")
-        applicant = User.objects.create_user(username="applic2", password="x", role="worker")
-        job = make_job(inst, poster)
-        app = JobApplication.objects.create(job=job, applicant=applicant, status="pending")
-        self.admin.mark_viewed(None, JobApplication.objects.filter(pk=app.pk))
-        app.refresh_from_db()
-        assert app.status == "viewed"
-
-    def test_mark_accepted_action(self):
-        inst = make_institution(lrk="LRK-APPACC")
-        poster = User.objects.create_user(username="poster7", password="x", role="institution")
-        applicant = User.objects.create_user(username="applic3", password="x", role="worker")
-        job = make_job(inst, poster)
-        app = JobApplication.objects.create(job=job, applicant=applicant, status="pending")
-        self.admin.mark_accepted(None, JobApplication.objects.filter(pk=app.pk))
-        app.refresh_from_db()
-        assert app.status == "accepted"
-
-    def test_mark_rejected_action(self):
-        inst = make_institution(lrk="LRK-APPREJ")
-        poster = User.objects.create_user(username="poster8", password="x", role="institution")
-        applicant = User.objects.create_user(username="applic4", password="x", role="worker")
-        job = make_job(inst, poster)
-        app = JobApplication.objects.create(job=job, applicant=applicant, status="pending")
-        self.admin.mark_rejected(None, JobApplication.objects.filter(pk=app.pk))
-        app.refresh_from_db()
-        assert app.status == "rejected"
 
 
 # ---------------------------------------------------------------------------

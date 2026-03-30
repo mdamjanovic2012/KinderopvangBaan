@@ -357,26 +357,14 @@ class TestInstitutionDetailSerializer:
 
     def test_locations_active_job_count(self, db):
         from institutions.serializers import InstitutionDetailSerializer
-        from jobs.models import Job
-        from users.models import User
         parent = make_inst("Org Met Jobs", "LRK-MJ", naam_houder="Org", kvk_nummer_houder="66667777")
         child = make_inst("Locatie A", "LRK-LA", naam_houder="Org", kvk_nummer_houder="66667777")
         child.parent = parent
         child.save()
-        user = User.objects.create_user(username="poster_test99", password="x", role="institution")
-        Job.objects.create(
-            institution=child,
-            posted_by=user,
-            title="PM",
-            job_type="pm3",
-            contract_type="fulltime",
-            description="test",
-            city="Amsterdam",
-            is_active=True,
-        )
         data = InstitutionDetailSerializer(parent).data
         loc = next(l for l in data["locations"] if l["id"] == child.id)
-        assert loc["active_job_count"] == 1
+        # Jobs zijn nu gekoppeld aan Company (scraper), niet aan Institution
+        assert loc["active_job_count"] == 0
 
     def test_detail_view_returns_parent_info(self, api_client):
         parent = make_inst("View Hoofd", "LRK-VH")

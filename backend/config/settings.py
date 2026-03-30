@@ -196,9 +196,9 @@ UNFOLD = {
                         "link": reverse_lazy("admin:jobs_job_changelist"),
                     },
                     {
-                        "title": "Sollicitaties",
-                        "icon": "send",
-                        "link": reverse_lazy("admin:jobs_jobapplication_changelist"),
+                        "title": "Bedrijven",
+                        "icon": "domain",
+                        "link": reverse_lazy("admin:jobs_company_changelist"),
                     },
                 ],
             },

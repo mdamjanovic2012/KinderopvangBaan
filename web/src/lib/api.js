@@ -51,9 +51,7 @@ export const api = {
     if (type) params.set("job_type", type);
     return request(`/jobs/nearby/?${params}`);
   },
-  applyToJob: (jobId, coverLetter) =>
-    request(`/jobs/${jobId}/apply/`, {
-      method: "POST",
-      body: JSON.stringify({ cover_letter: coverLetter }),
-    }),
+  clickJob: (jobId) =>
+    request(`/jobs/${jobId}/click/`, { method: "POST" }),
+  companies: () => request(`/jobs/companies/`),
 };

@@ -1,32 +1,23 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from .models import Job, JobApplication
+from .models import Company, GeocodedLocation, Job, VacatureClick
 
 
-@admin.register(Job)
-class JobAdmin(ModelAdmin):
-    list_display = [
-        "title", "institution", "job_type", "contract_type",
-        "city", "hours_per_week", "is_active", "is_premium", "created_at",
-    ]
-    list_filter = ["job_type", "contract_type", "is_active", "is_premium"]
-    search_fields = ["title", "city", "institution__name", "institution__naam_houder"]
-    readonly_fields = ["created_at", "updated_at", "posted_by"]
-    ordering = ["-created_at"]
+@admin.register(Company)
+class CompanyAdmin(ModelAdmin):
+    list_display = ["name", "scraper_class", "is_active", "last_scraped_at", "created_at"]
+    list_filter = ["is_active"]
+    search_fields = ["name", "slug", "scraper_class"]
+    prepopulated_fields = {"slug": ["name"]}
+    readonly_fields = ["last_scraped_at", "created_at", "updated_at"]
 
     fieldsets = [
-        ("Vacature", {
-            "fields": ["title", "institution", "posted_by", "job_type", "contract_type", "description"],
+        ("Bedrijf", {
+            "fields": ["name", "slug", "website", "logo_url", "description"],
         }),
-        ("Details", {
-            "fields": ["city", "hours_per_week", "salary_min", "salary_max"],
-        }),
-        ("Vereisten", {
-            "fields": ["requires_vog", "requires_diploma"],
-        }),
-        ("Status", {
-            "fields": ["is_active", "is_premium", "expires_at"],
+        ("Scraping", {
+            "fields": ["job_board_url", "scraper_class", "is_active", "last_scraped_at"],
         }),
         ("Tijdstempels", {
             "fields": ["created_at", "updated_at"],
@@ -34,15 +25,64 @@ class JobAdmin(ModelAdmin):
         }),
     ]
 
-    actions = ["activate_jobs", "deactivate_jobs", "mark_premium", "unmark_premium"]
+
+@admin.register(GeocodedLocation)
+class GeocodedLocationAdmin(ModelAdmin):
+    list_display = ["location_name", "city", "postcode", "municipality", "geocoded_at"]
+    search_fields = ["location_name", "city", "postcode", "municipality"]
+    readonly_fields = ["geocoded_at"]
+
+
+@admin.register(Job)
+class JobAdmin(ModelAdmin):
+    list_display = [
+        "title", "company", "job_type", "contract_type",
+        "city", "hours_min", "hours_max", "is_active", "is_expired", "is_premium", "created_at",
+    ]
+    list_filter = ["company", "job_type", "contract_type", "is_active", "is_expired", "is_premium"]
+    search_fields = ["title", "city", "location_name", "company__name"]
+    readonly_fields = ["created_at", "updated_at", "last_seen_at", "source_url", "external_id"]
+    ordering = ["-created_at"]
+
+    fieldsets = [
+        ("Vacature", {
+            "fields": ["title", "company", "job_type", "contract_type", "short_description", "description"],
+        }),
+        ("Locatie", {
+            "fields": ["location_name", "city", "postcode", "location"],
+        }),
+        ("Details", {
+            "fields": ["hours_min", "hours_max", "salary_min", "salary_max", "age_min", "age_max"],
+        }),
+        ("Vereisten", {
+            "fields": ["requires_vog", "requires_diploma", "requires_bevoegdheid", "min_experience"],
+        }),
+        ("Status", {
+            "fields": ["is_active", "is_expired", "is_premium", "expires_at"],
+        }),
+        ("Scraping", {
+            "fields": ["source_url", "external_id", "last_seen_at"],
+            "classes": ["collapse"],
+        }),
+        ("Tijdstempels", {
+            "fields": ["created_at", "updated_at"],
+            "classes": ["collapse"],
+        }),
+    ]
+
+    actions = ["activate_jobs", "deactivate_jobs", "mark_expired", "mark_premium", "unmark_premium"]
 
     @admin.action(description="Activeer geselecteerde vacatures")
     def activate_jobs(self, request, queryset):
-        queryset.update(is_active=True)
+        queryset.update(is_active=True, is_expired=False)
 
     @admin.action(description="Deactiveer geselecteerde vacatures")
     def deactivate_jobs(self, request, queryset):
         queryset.update(is_active=False)
+
+    @admin.action(description="Markeer als verlopen")
+    def mark_expired(self, request, queryset):
+        queryset.update(is_expired=True, is_active=False)
 
     @admin.action(description="Markeer als premium")
     def mark_premium(self, request, queryset):
@@ -53,28 +93,10 @@ class JobAdmin(ModelAdmin):
         queryset.update(is_premium=False)
 
 
-@admin.register(JobApplication)
-class JobApplicationAdmin(ModelAdmin):
-    list_display = ["applicant", "job", "job_institution", "status", "created_at"]
-    list_filter = ["status"]
-    search_fields = ["applicant__username", "applicant__email", "job__title", "job__institution__name"]
-    readonly_fields = ["applicant", "job", "cover_letter", "created_at"]
-    ordering = ["-created_at"]
-
-    actions = ["mark_viewed", "mark_accepted", "mark_rejected"]
-
-    def job_institution(self, obj):
-        return obj.job.institution.name
-    job_institution.short_description = "Organisatie"
-
-    @admin.action(description="Markeer als bekeken")
-    def mark_viewed(self, request, queryset):
-        queryset.update(status=JobApplication.STATUS_VIEWED)
-
-    @admin.action(description="Markeer als geaccepteerd")
-    def mark_accepted(self, request, queryset):
-        queryset.update(status=JobApplication.STATUS_ACCEPTED)
-
-    @admin.action(description="Markeer als afgewezen")
-    def mark_rejected(self, request, queryset):
-        queryset.update(status=JobApplication.STATUS_REJECTED)
+@admin.register(VacatureClick)
+class VacatureClickAdmin(ModelAdmin):
+    list_display = ["job", "user", "clicked_at", "ip_hash"]
+    list_filter = ["clicked_at"]
+    search_fields = ["job__title", "user__username", "user__email"]
+    readonly_fields = ["job", "user", "clicked_at", "ip_hash"]
+    ordering = ["-clicked_at"]

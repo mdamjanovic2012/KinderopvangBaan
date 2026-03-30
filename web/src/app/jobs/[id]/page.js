@@ -8,12 +8,6 @@ import Nav from "@/components/Nav";
 import { useAuth } from "@/context/AuthContext";
 import { getCaoLabel } from "@/lib/caoFunctions";
 
-const BEVOEGDHEID_LABELS = {
-  dagopvang: "Dagopvang",
-  bso: "BSO",
-  peuterspeelzaal: "Peuterspeelzaal",
-};
-
 const CONTRACT_LABELS = {
   fulltime: "Full-time",
   parttime: "Part-time",
@@ -26,10 +20,7 @@ export default function JobDetailPage({ params }) {
   const router = useRouter();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [applying, setApplying] = useState(false);
-  const [coverLetter, setCoverLetter] = useState("");
-  const [applied, setApplied] = useState(false);
-  const [applyError, setApplyError] = useState(null);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     api.job(id)
@@ -37,6 +28,23 @@ export default function JobDetailPage({ params }) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleVisit = async () => {
+    if (!user) {
+      router.push(`/register?next=/jobs/${id}`);
+      return;
+    }
+    setRedirecting(true);
+    try {
+      const { source_url } = await api.clickJob(id);
+      window.open(source_url, "_blank", "noopener,noreferrer");
+    } catch {
+      // fallback: open source_url directly
+      if (job?.source_url) window.open(job.source_url, "_blank", "noopener,noreferrer");
+    } finally {
+      setRedirecting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -80,12 +88,21 @@ export default function JobDetailPage({ params }) {
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-600">
-                  {CONTRACT_LABELS[job.contract_type] || job.contract_type}
-                </span>
-                <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">
-                  {getCaoLabel(job.job_type)}
-                </span>
+                {job.contract_type && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-600">
+                    {CONTRACT_LABELS[job.contract_type] || job.contract_type}
+                  </span>
+                )}
+                {job.job_type && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">
+                    {getCaoLabel(job.job_type)}
+                  </span>
+                )}
+                {job.age_min != null && job.age_max != null && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600">
+                    {job.age_min}–{job.age_max} jaar
+                  </span>
+                )}
                 {job.is_premium && (
                   <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-600">
                     Uitgelicht
@@ -94,23 +111,22 @@ export default function JobDetailPage({ params }) {
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-1">{job.title}</h1>
               <div className="text-sm text-gray-500">
-                <Link
-                  href={`/instellingen/${job.institution}`}
-                  className="font-medium text-gray-700 hover:text-blue-700 transition-colors"
-                >
-                  {job.institution_name}
-                </Link>
-                {" · "}
-                {job.institution_city || job.city}
+                <span className="font-medium text-gray-700">{job.company_name}</span>
+                {job.location_name && job.location_name !== job.company_name && (
+                  <> · {job.location_name}</>
+                )}
+                {job.city && <> · {job.city}</>}
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              <h2 className="text-sm font-semibold text-gray-900 mb-3">Omschrijving</h2>
-              <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
-                {job.description}
+            {job.description && (
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <h2 className="text-sm font-semibold text-gray-900 mb-3">Omschrijving</h2>
+                <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                  {job.description}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <h2 className="text-sm font-semibold text-gray-900 mb-4">Vereisten</h2>
@@ -135,7 +151,7 @@ export default function JobDetailPage({ params }) {
                   <div className="flex items-start gap-2">
                     <span className="w-4 h-4 rounded-full flex items-center justify-center text-xs bg-blue-100 text-blue-600 mt-0.5 shrink-0">✓</span>
                     <span className="text-sm text-gray-600">
-                      Bevoegdheid vereist: {job.requires_bevoegdheid.map((v) => BEVOEGDHEID_LABELS[v] || v).join(", ")}
+                      Bevoegdheid vereist: {job.requires_bevoegdheid.join(", ")}
                     </span>
                   </div>
                 )}
@@ -153,60 +169,25 @@ export default function JobDetailPage({ params }) {
 
           {/* Sidebar */}
           <div className="space-y-4">
-            {/* Apply CTA */}
+            {/* CTA */}
             <div className="bg-blue-700 rounded-2xl p-5 text-white">
-              <div className="text-sm font-semibold mb-3">Reageer op deze vacature</div>
-              {applied ? (
-                <div className="text-center text-sm bg-white text-green-700 rounded-lg py-2.5 font-semibold">
-                  ✓ Sollicitatie verstuurd!
-                </div>
-              ) : applying ? (
-                <div className="space-y-3">
-                  <textarea
-                    value={coverLetter}
-                    onChange={(e) => setCoverLetter(e.target.value)}
-                    placeholder="Korte motivatie (optioneel)..."
-                    rows={4}
-                    className="w-full rounded-lg px-3 py-2 text-sm text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-                  />
-                  {applyError && (
-                    <div className="text-xs text-red-200">{applyError}</div>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={async () => {
-                        try {
-                          await api.applyToJob(id, coverLetter);
-                          setApplied(true);
-                        } catch (err) {
-                          setApplyError(err?.non_field_errors?.[0] || "Er ging iets mis.");
-                        }
-                      }}
-                      className="flex-1 bg-white text-blue-700 font-semibold text-sm py-2 rounded-lg hover:bg-blue-50 transition-colors"
-                    >
-                      Versturen
-                    </button>
-                    <button
-                      onClick={() => setApplying(false)}
-                      className="text-sm text-blue-200 hover:text-white transition-colors px-2"
-                    >
-                      Annuleren
-                    </button>
-                  </div>
-                </div>
-              ) : user ? (
-                <button
-                  onClick={() => setApplying(true)}
-                  className="w-full block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors"
-                >
-                  Solliciteren
-                </button>
-              ) : (
+              <div className="text-sm font-semibold mb-1">Interesse in deze vacature?</div>
+              <p className="text-xs text-blue-200 mb-4">
+                Je wordt doorgestuurd naar de website van {job.company_name}.
+              </p>
+              <button
+                onClick={handleVisit}
+                disabled={redirecting}
+                className="w-full block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors disabled:opacity-60"
+              >
+                {redirecting ? "Bezig..." : user ? "Bezoek vacature →" : "Registreer & bezoek →"}
+              </button>
+              {!user && (
                 <Link
                   href={`/login?next=/jobs/${id}`}
-                  className="block text-center text-sm font-semibold bg-white text-blue-700 rounded-lg py-2.5 hover:bg-blue-50 transition-colors"
+                  className="block text-center text-xs text-blue-200 hover:text-white mt-2 transition-colors"
                 >
-                  Inloggen om te reageren
+                  Al een account? Inloggen
                 </Link>
               )}
             </div>
@@ -218,45 +199,60 @@ export default function JobDetailPage({ params }) {
                   <div className="text-xs text-gray-400 mb-0.5">Salaris</div>
                   <div className="text-sm font-semibold text-gray-900">
                     €{job.salary_min}
-                    {job.salary_max && job.salary_max !== job.salary_min && `–${job.salary_max}`}
-                    <span className="text-xs font-normal text-gray-400"> per uur</span>
+                    {job.salary_max && job.salary_max !== job.salary_min && `–€${job.salary_max}`}
+                    <span className="text-xs font-normal text-gray-400"> per maand</span>
                   </div>
                 </div>
               )}
-              {job.hours_per_week && (
+              {(job.hours_min || job.hours_max) && (
                 <div>
                   <div className="text-xs text-gray-400 mb-0.5">Uren</div>
-                  <div className="text-sm font-medium text-gray-700">{job.hours_per_week} uur per week</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {job.hours_min && job.hours_max && job.hours_min !== job.hours_max
+                      ? `${job.hours_min}–${job.hours_max} uur per week`
+                      : `${job.hours_min || job.hours_max} uur per week`}
+                  </div>
                 </div>
               )}
-              <div>
-                <div className="text-xs text-gray-400 mb-0.5">Contract</div>
-                <div className="text-sm font-medium text-gray-700">
-                  {CONTRACT_LABELS[job.contract_type] || job.contract_type}
+              {job.age_min != null && job.age_max != null && (
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Leeftijdsgroep</div>
+                  <div className="text-sm font-medium text-gray-700">{job.age_min}–{job.age_max} jaar</div>
                 </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-400 mb-0.5">Locatie</div>
-                <div className="text-sm font-medium text-gray-700">{job.institution_city || job.city}</div>
-              </div>
+              )}
+              {job.contract_type && (
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Contract</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {CONTRACT_LABELS[job.contract_type] || job.contract_type}
+                  </div>
+                </div>
+              )}
+              {job.city && (
+                <div>
+                  <div className="text-xs text-gray-400 mb-0.5">Locatie</div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {job.location_name || job.city}
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="text-xs text-gray-400 mb-0.5">Geplaatst</div>
                 <div className="text-sm font-medium text-gray-700">{postedDate}</div>
               </div>
             </div>
 
-            {/* Institution link */}
-            <Link
-              href={`/instellingen/${job.institution}`}
-              className="block bg-white rounded-2xl p-5 shadow-sm border border-gray-100 hover:border-blue-200 transition-colors group"
-            >
+            {/* Company card */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+              {job.company_logo && (
+                <img src={job.company_logo} alt={job.company_name} className="h-8 mb-3 object-contain" />
+              )}
               <div className="text-xs text-gray-400 mb-1">Werkgever</div>
-              <div className="text-sm font-semibold text-gray-900 group-hover:text-blue-700 transition-colors">
-                {job.institution_name}
-              </div>
-              <div className="text-xs text-gray-400 mt-0.5">{job.institution_city}</div>
-              <div className="text-xs text-blue-700 mt-2">Bekijk profiel →</div>
-            </Link>
+              <div className="text-sm font-semibold text-gray-900">{job.company_name}</div>
+              {job.location_name && (
+                <div className="text-xs text-gray-400 mt-0.5">{job.location_name}</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
