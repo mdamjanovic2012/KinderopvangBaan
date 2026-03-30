@@ -84,8 +84,8 @@ jobs:
               --registry-login-server $(ACR_LOGIN_SERVER) \
               --registry-username $(ACR_NAME) \
               --registry-password "$ACR_PASSWORD" \
-              --cpu 2 \
-              --memory 4 \
+              --cpu 4 \
+              --memory 8 \
               --os-type Linux \
               --restart-policy Always \
               --ip-address Public \
