@@ -5,8 +5,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { getCaoLabel } from "@/lib/caoFunctions";
 
-const InstitutionMap = dynamic(() => import("@/components/InstitutionMap"), {
+const JobMap = dynamic(() => import("@/components/JobMap"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-full bg-gray-100">
@@ -15,22 +16,14 @@ const InstitutionMap = dynamic(() => import("@/components/InstitutionMap"), {
   ),
 });
 
-const TYPE_OPTIONS = [
-  { value: "", label: "Alle typen" },
-  { value: "bso", label: "BSO" },
-  { value: "kdv", label: "KDV / Kinderdagverblijf" },
-  { value: "gastouder", label: "Gastouderbureau" },
-  { value: "peuterspeelzaal", label: "Peuterspeelzaal" },
+const JOB_TYPE_OPTIONS = [
+  { value: "", label: "Alle functies" },
+  { value: "pm3", label: "PM KDV" },
+  { value: "pm4", label: "PM 3–4 jaar" },
+  { value: "bso_begeleider", label: "BSO Begeleider" },
+  { value: "locatiemanager", label: "Locatiemanager" },
+  { value: "groepshulp", label: "Groepshulp" },
 ];
-
-const RADIUS_OPTIONS = [5, 10, 15, 25, 50];
-
-const TYPE_COLORS = {
-  bso: "bg-blue-100 text-blue-700",
-  kdv: "bg-emerald-100 text-emerald-700",
-  gastouder: "bg-amber-100 text-amber-700",
-  peuterspeelzaal: "bg-purple-100 text-purple-700",
-};
 
 const PDOK_SUGGEST = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/suggest";
 const PDOK_LOOKUP  = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/lookup";
@@ -65,7 +58,6 @@ function AddressSearch({ onLocationSelect }) {
     setQuery(doc.weergavenaam);
     setOpen(false);
     setSuggestions([]);
-    // Lookup exact centroid
     fetch(`${PDOK_LOOKUP}?id=${doc.id}`)
       .then((r) => r.json())
       .then((data) => {
@@ -78,7 +70,6 @@ function AddressSearch({ onLocationSelect }) {
       .catch(() => {});
   };
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e) => { if (!wrapperRef.current?.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", handler);
@@ -98,15 +89,9 @@ function AddressSearch({ onLocationSelect }) {
           className="flex-1 px-2 py-1.5 text-sm text-gray-700 bg-transparent focus:outline-none"
         />
         {query && (
-          <button
-            onClick={() => { setQuery(""); setSuggestions([]); setOpen(false); }}
-            className="pr-3 text-gray-300 hover:text-gray-500"
-          >
-            ×
-          </button>
+          <button onClick={() => { setQuery(""); setSuggestions([]); setOpen(false); }} className="pr-3 text-gray-300 hover:text-gray-500">×</button>
         )}
       </div>
-
       {open && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-100 rounded-xl shadow-lg z-50 overflow-hidden">
           {suggestions.map((doc) => (
@@ -116,9 +101,7 @@ function AddressSearch({ onLocationSelect }) {
               className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
             >
               <span className="font-medium">{doc.weergavenaam}</span>
-              {doc.type && (
-                <span className="ml-2 text-xs text-gray-400">{doc.type}</span>
-              )}
+              {doc.type && <span className="ml-2 text-xs text-gray-400">{doc.type}</span>}
             </button>
           ))}
         </div>
@@ -128,76 +111,38 @@ function AddressSearch({ onLocationSelect }) {
 }
 
 export default function MapPage() {
-  const { profile } = useAuth();
-  const profileRadius = profile?.work_radius_km ?? null;
-
-  const [allInstitutions, setAllInstitutions] = useState([]);
-  const [nearbyInstitutions, setNearbyInstitutions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  const [jobs, setJobs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [blurred, setBlurred] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({ job_type: "" });
   const [userLocation, setUserLocation] = useState(null);
-  const [filters, setFilters] = useState({ type: "", radius: profileRadius ?? 10 });
-  const [mode, setMode] = useState("all");
-  const [mobileView, setMobileView] = useState("map"); // "map" | "list"
-
-  // Sync profile radius as default when profile loads (only if user hasn't changed it)
-  useEffect(() => {
-    if (profileRadius) setFilters((f) => ({ ...f, radius: profileRadius }));
-  }, [profileRadius]);
+  const [mobileView, setMobileView] = useState("map");
 
   useEffect(() => {
     setLoading(true);
-    api.mapPins()
-      .then((data) => setAllInstitutions(Array.isArray(data) ? data : (data.results || [])))
+    api.jobMapPins(filters.job_type || undefined)
+      .then((data) => {
+        setJobs(data.results || []);
+        setTotal(data.total ?? (data.results || []).length);
+        setBlurred(data.blurred ?? false);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
-
-  const fetchNearby = useCallback(() => {
-    if (!userLocation) return;
-    setLoading(true);
-    api.nearbyInstitutions({
-      lat: userLocation.lat,
-      lng: userLocation.lng,
-      radius: filters.radius,
-      type: filters.type || undefined,
-    })
-      .then(setNearbyInstitutions)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [userLocation, filters]);
+  }, [filters.job_type]);
 
   const handleGeolocate = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setMode("nearby");
-      },
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => alert("Locatie niet beschikbaar. Typ een adres in het zoekveld.")
     );
   };
-
-  const handleAddressSelect = ({ lat, lng }) => {
-    setUserLocation({ lat, lng });
-    setMode("nearby");
-  };
-
-  useEffect(() => {
-    if (mode === "nearby" && userLocation) fetchNearby();
-  }, [mode, userLocation, filters, fetchNearby]);
-
-  const handleFilterChange = (key, value) => {
-    setFilters((f) => ({ ...f, [key]: value }));
-  };
-
-  const institutions = mode === "nearby"
-    ? nearbyInstitutions
-    : (filters.type ? allInstitutions.filter((i) => i.institution_type === filters.type) : allInstitutions);
 
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Top bar */}
       <div className="border-b border-gray-100 bg-white z-10 shadow-sm px-4 py-3 space-y-2">
-        {/* Row 1: Logo + GPS + count */}
         <div className="flex items-center gap-2">
           <Link href="/" className="text-base sm:text-lg font-bold text-blue-700 shrink-0">
             KinderopvangBaan
@@ -205,81 +150,31 @@ export default function MapPage() {
           <div className="flex items-center gap-2 ml-auto shrink-0">
             <button
               onClick={handleGeolocate}
-              title="Gebruik GPS-locatie"
               className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-blue-800 transition-colors"
             >
               📍 <span className="hidden sm:inline">Mijn locatie</span><span className="sm:hidden">Locatie</span>
             </button>
-            {mode === "nearby" && (
-              <button
-                onClick={() => { setMode("all"); setNearbyInstitutions([]); }}
-                className="text-sm text-gray-500 hover:text-gray-700 underline"
-              >
-                Alles
-              </button>
-            )}
             <span className="text-sm text-gray-400">
-              {loading ? "…" : `${institutions.length}`}
+              {loading ? "…" : `${total} vacatures`}
             </span>
           </div>
         </div>
 
-        {/* Row 2: Search + filters */}
         <div className="flex items-center gap-2 flex-wrap">
-          <AddressSearch onLocationSelect={handleAddressSelect} />
-
+          <AddressSearch onLocationSelect={setUserLocation} />
           <select
-            value={filters.type}
-            onChange={(e) => handleFilterChange("type", e.target.value)}
+            value={filters.job_type}
+            onChange={(e) => setFilters((f) => ({ ...f, job_type: e.target.value }))}
             className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
-            {TYPE_OPTIONS.map((o) => (
+            {JOB_TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-
-          {mode === "nearby" && (
-            <select
-              value={filters.radius}
-              onChange={(e) => handleFilterChange("radius", Number(e.target.value))}
-              className="flex-1 sm:flex-none border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            >
-              {RADIUS_OPTIONS.map((r) => (
-                <option key={r} value={r}>{r} km</option>
-              ))}
-            </select>
-          )}
         </div>
       </div>
 
-      {/* Radius filter banner */}
-      {mode === "nearby" && (
-        <div className="flex items-center gap-3 px-4 py-2 bg-blue-50 border-b border-blue-100 text-sm">
-          <span className="text-blue-700">
-            📍 Toont resultaten binnen <strong>{filters.radius} km</strong>
-            {profileRadius && filters.radius === profileRadius && (
-              <span className="ml-1 text-blue-500">(jouw voorkeur)</span>
-            )}
-          </span>
-          <div className="hidden sm:flex items-center gap-1 ml-auto">
-            {RADIUS_OPTIONS.map((r) => (
-              <button
-                key={r}
-                onClick={() => handleFilterChange("radius", r)}
-                className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
-                  filters.radius === r
-                    ? "bg-blue-700 text-white"
-                    : "bg-white text-blue-600 border border-blue-200 hover:bg-blue-100"
-                }`}
-              >
-                {r} km
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Mobile view toggle */}
+      {/* Mobile toggle */}
       <div className="sm:hidden flex border-b border-gray-100 bg-white">
         <button
           onClick={() => setMobileView("map")}
@@ -291,52 +186,101 @@ export default function MapPage() {
           onClick={() => setMobileView("list")}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileView === "list" ? "text-blue-700 border-b-2 border-blue-700" : "text-gray-500"}`}
         >
-          📋 Lijst ({institutions.length})
+          📋 Lijst ({jobs.length})
         </button>
       </div>
 
       {/* Map + sidebar */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className={`${mobileView === "list" ? "flex" : "hidden"} sm:flex w-full sm:w-80 shrink-0 overflow-y-auto border-r border-gray-100 bg-white flex-col`}>
-          {institutions.length === 0 && !loading && (
-            <div className="p-6 text-center text-gray-400 text-sm">
-              Geen locaties gevonden.
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Sidebar list */}
+        <div className={`${mobileView === "list" ? "flex" : "hidden"} sm:flex w-full sm:w-80 shrink-0 border-r border-gray-100 bg-white flex-col relative`}>
+          {/* Blur overlay voor gasten */}
+          {blurred && !user && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-sm" />
+              <div className="relative z-10 bg-white rounded-2xl shadow-xl px-6 py-5 text-center max-w-xs mx-4">
+                <div className="text-2xl mb-2">📋</div>
+                <h2 className="text-base font-bold text-gray-900 mb-1">
+                  Bekijk alle {total} vacatures
+                </h2>
+                <p className="text-xs text-gray-500 mb-4">
+                  Registreer gratis en zie alle vacatures in de lijst.
+                </p>
+                <Link
+                  href="/register"
+                  className="block w-full bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors text-center"
+                >
+                  Gratis registreren →
+                </Link>
+                <Link
+                  href="/login"
+                  className="block mt-2 text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Al een account? Inloggen
+                </Link>
+              </div>
             </div>
           )}
-          {institutions.map((inst) => (
-            <Link
-              key={inst.id}
-              href={`/instellingen/${inst.id}`}
-              className="flex flex-col p-4 border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TYPE_COLORS[inst.institution_type] || "bg-gray-100 text-gray-600"}`}>
-                  {inst.institution_type?.toUpperCase()}
+          <div className="overflow-y-auto flex-1">
+            {jobs.length === 0 && !loading && (
+              <div className="p-6 text-center text-gray-400 text-sm">Geen vacatures gevonden.</div>
+            )}
+            {jobs.map((job) => (
+              <Link
+                key={job.id}
+                href={`/jobs/${job.id}`}
+                className="flex flex-col p-4 border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                    {getCaoLabel(job.job_type) || job.job_type}
+                  </span>
+                </div>
+                <span className="font-medium text-gray-900 text-sm group-hover:text-blue-700 transition-colors">
+                  {job.title}
                 </span>
-                {inst.lrk_verified && (
-                  <span className="text-xs text-green-600 font-medium">✓ LRK</span>
-                )}
-              </div>
-              <span className="font-medium text-gray-900 text-sm group-hover:text-blue-700 transition-colors">
-                {inst.name}
-              </span>
-              <span className="text-xs text-gray-400 mt-0.5">
-                {inst.city}
-                {inst.distance_km != null && ` · ${inst.distance_km} km`}
-              </span>
-            </Link>
-          ))}
+                <span className="text-xs text-gray-400 mt-0.5">
+                  {job.company_name} · {job.city}
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
 
+        {/* Map */}
         <div className={`${mobileView === "map" ? "flex" : "hidden"} sm:flex flex-1 relative`}>
-          <InstitutionMap
-            institutions={institutions}
-            center={
-              userLocation && mode === "nearby"
-                ? { lat: userLocation.lat, lng: userLocation.lng, radius: filters.radius }
-                : null
-            }
+          <JobMap
+            jobs={jobs}
+            center={userLocation}
           />
+
+          {/* Blur overlay voor gasten */}
+          {blurred && !user && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-sm" />
+              <div className="relative z-10 bg-white rounded-2xl shadow-xl px-8 py-6 text-center max-w-sm mx-4">
+                <div className="text-3xl mb-3">🗺️</div>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">
+                  Bekijk alle {total} vacatures op de kaart
+                </h2>
+                <p className="text-sm text-gray-500 mb-5">
+                  Registreer gratis en zie alle vacatures dicht bij jou in de buurt.
+                </p>
+                <Link
+                  href="/register"
+                  className="block w-full bg-blue-700 text-white text-sm font-semibold px-6 py-2.5 rounded-xl hover:bg-blue-800 transition-colors text-center"
+                >
+                  Gratis registreren →
+                </Link>
+                <Link
+                  href="/login"
+                  className="block mt-2 text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Al een account? Inloggen
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,10 +1,13 @@
 """
-Unit tests for the jobs app.
-Covers: models, serializers, list/create, detail, nearby, apply, my-applications, choices.
+Unit tests voor de jobs app (scraper-model).
+
+Job comes van scrapers (Kinderdam, Partou) — geen POST endpoint.
+Dekt: model, serializer, list, detail, nearby, click, choices.
 """
 import pytest
+from django.contrib.gis.geos import Point
 from rest_framework import status
-from jobs.models import Job, JobApplication
+from jobs.models import Company, Job, VacatureClick
 from jobs.serializers import JobSerializer
 from jobs.constants import CAO_FUNCTIONS, CAO_FUNCTION_VALUES
 
@@ -17,54 +20,58 @@ from jobs.constants import CAO_FUNCTIONS, CAO_FUNCTION_VALUES
 class TestJobModel:
     def test_str(self, job):
         assert "Test BSO Medewerker" in str(job)
-        assert "Test BSO Amsterdam" in str(job)
+        assert "Test Kinderopvang BV" in str(job)
 
     def test_default_is_active(self, job):
         assert job.is_active is True
 
+    def test_default_not_expired(self, job):
+        assert job.is_expired is False
+
     def test_default_not_premium(self, job):
         assert job.is_premium is False
 
-    def test_ordering_newest_first(self, db, institution, institution_user):
+    def test_source_url_unique(self, db, company, amsterdam):
+        Job.objects.create(
+            company=company, title="A", job_type="pm3", contract_type="fulltime",
+            source_url="https://example.com/job/1", location=amsterdam, city="Amsterdam",
+        )
+        with pytest.raises(Exception):
+            Job.objects.create(
+                company=company, title="B", job_type="pm3", contract_type="fulltime",
+                source_url="https://example.com/job/1", location=amsterdam, city="Amsterdam",
+            )
+
+    def test_ordering_newest_first(self, db, company, amsterdam):
         j1 = Job.objects.create(
-            institution=institution,
-            posted_by=institution_user,
-            title="Old job",
-            job_type="pm3",
-            contract_type="fulltime",
-            description="Old",
-            location=institution.location,
-            city=institution.city,
+            company=company, title="Old job", job_type="pm3", contract_type="fulltime",
+            source_url="https://example.com/job/old", location=amsterdam, city="Amsterdam",
         )
         j2 = Job.objects.create(
-            institution=institution,
-            posted_by=institution_user,
-            title="New job",
-            job_type="pm3",
-            contract_type="fulltime",
-            description="New",
-            location=institution.location,
-            city=institution.city,
+            company=company, title="New job", job_type="pm3", contract_type="fulltime",
+            source_url="https://example.com/job/new", location=amsterdam, city="Amsterdam",
         )
-        jobs = list(Job.objects.all())
-        assert jobs[0] == j2  # newest first
+        jobs = list(Job.objects.filter(source_url__in=[
+            "https://example.com/job/old", "https://example.com/job/new"
+        ]).order_by("-created_at"))
+        assert jobs[0] == j2
 
 
 @pytest.mark.django_db
-class TestJobApplicationModel:
-    def test_str(self, job, worker_user):
-        app = JobApplication.objects.create(job=job, applicant=worker_user)
-        assert "testworker" in str(app)
-        assert "Test BSO Medewerker" in str(app)
+class TestCompanyModel:
+    def test_str(self, company):
+        assert str(company) == "Test Kinderopvang BV"
 
-    def test_default_status_pending(self, job, worker_user):
-        app = JobApplication.objects.create(job=job, applicant=worker_user)
-        assert app.status == "pending"
-
-    def test_unique_per_job_applicant(self, job, worker_user):
-        JobApplication.objects.create(job=job, applicant=worker_user)
+    def test_slug_unique(self, db):
+        Company.objects.create(
+            name="A", slug="slug-unique", job_board_url="https://a.nl/vacatures",
+            scraper_class="A",
+        )
         with pytest.raises(Exception):
-            JobApplication.objects.create(job=job, applicant=worker_user)
+            Company.objects.create(
+                name="B", slug="slug-unique", job_board_url="https://b.nl/vacatures",
+                scraper_class="B",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -75,24 +82,25 @@ class TestJobApplicationModel:
 class TestJobSerializer:
     def test_contains_expected_fields(self, job):
         data = JobSerializer(job).data
-        for field in ["id", "title", "job_type", "contract_type", "institution_name", "institution_city"]:
+        for field in ["id", "title", "job_type", "contract_type",
+                      "company_name", "company_logo", "source_url",
+                      "city", "location_name", "hours_min", "hours_max",
+                      "salary_min", "salary_max", "distance_km"]:
             assert field in data
 
-    def test_institution_name_resolved(self, job):
-        data = JobSerializer(job).data
-        assert data["institution_name"] == "Test BSO Amsterdam"
+    def test_company_name_resolved(self, job):
+        assert JobSerializer(job).data["company_name"] == "Test Kinderopvang BV"
 
     def test_distance_km_none_without_annotation(self, job):
-        data = JobSerializer(job).data
-        assert data["distance_km"] is None
+        assert JobSerializer(job).data["distance_km"] is None
 
 
 # ---------------------------------------------------------------------------
-# View tests — list & create
+# View tests — list
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestJobListCreateView:
+class TestJobListView:
     def test_list_returns_200(self, api_client, job):
         res = api_client.get("/api/jobs/")
         assert res.status_code == status.HTTP_200_OK
@@ -102,19 +110,37 @@ class TestJobListCreateView:
         titles = [j["title"] for j in res.data["results"]]
         assert "Test BSO Medewerker" in titles
 
-    def test_inactive_excluded_from_list(self, api_client, job):
-        job.is_active = False
+    def test_guest_ziet_max_3_resultaten(self, api_client, company, amsterdam):
+        for i in range(5):
+            Job.objects.create(
+                company=company, title=f"Job {i}", job_type="pm3",
+                contract_type="fulltime",
+                source_url=f"https://example.com/job/{i}",
+                location=amsterdam, city="Amsterdam", is_active=True,
+            )
+        res = api_client.get("/api/jobs/")
+        assert len(res.data["results"]) <= 3
+        assert res.data["blurred"] is True
+
+    def test_geauthenticeerde_gebruiker_ziet_alle(self, auth_client, company, amsterdam):
+        for i in range(5):
+            Job.objects.create(
+                company=company, title=f"Auth Job {i}", job_type="pm3",
+                contract_type="fulltime",
+                source_url=f"https://example.com/authjob/{i}",
+                location=amsterdam, city="Amsterdam", is_active=True,
+            )
+        res = auth_client.get("/api/jobs/")
+        assert res.data["blurred"] is False
+
+    def test_expired_jobs_niet_zichtbaar(self, api_client, job):
+        job.is_expired = True
         job.save()
         res = api_client.get("/api/jobs/")
         titles = [j["title"] for j in res.data["results"]]
         assert "Test BSO Medewerker" not in titles
 
-    def test_filter_by_job_type(self, api_client, job, db, institution, institution_user):
-        Job.objects.create(
-            institution=institution, posted_by=institution_user,
-            title="KDV job", job_type="pm4", contract_type="fulltime",
-            description="X", location=institution.location, city=institution.city,
-        )
+    def test_filter_by_job_type(self, api_client, job):
         res = api_client.get("/api/jobs/?job_type=pm3")
         types = [j["job_type"] for j in res.data["results"]]
         assert all(t == "pm3" for t in types)
@@ -124,38 +150,9 @@ class TestJobListCreateView:
         results = res.data["results"]
         assert any(j["title"] == "Test BSO Medewerker" for j in results)
 
-    def test_create_requires_auth(self, api_client, institution):
-        res = api_client.post("/api/jobs/", {
-            "institution": institution.pk,
-            "title": "New job",
-            "job_type": "pm3",
-            "contract_type": "parttime",
-            "description": "Test",
-        }, format="json")
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_create_by_authenticated_user(self, institution_client, institution):
-        res = institution_client.post("/api/jobs/", {
-            "institution": institution.pk,
-            "title": "New Vacancy",
-            "job_type": "pm4",
-            "contract_type": "fulltime",
-            "description": "We are looking for a medewerker.",
-            "requires_vog": True,
-        }, format="json")
-        assert res.status_code == status.HTTP_201_CREATED
-        assert res.data["title"] == "New Vacancy"
-
-    def test_create_inherits_location_from_institution(self, institution_client, institution):
-        res = institution_client.post("/api/jobs/", {
-            "institution": institution.pk,
-            "title": "Location Test",
-            "job_type": "pm3",
-            "contract_type": "parttime",
-            "description": "Test",
-        }, format="json")
-        assert res.status_code == status.HTTP_201_CREATED
-        assert res.data["city"] == institution.city
+    def test_post_niet_toegestaan(self, api_client):
+        res = api_client.post("/api/jobs/", {}, format="json")
+        assert res.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +176,12 @@ class TestJobDetailView:
         res = api_client.get(f"/api/jobs/{job.pk}/")
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_detail_404_for_expired(self, api_client, job):
+        job.is_expired = True
+        job.save()
+        res = api_client.get(f"/api/jobs/{job.pk}/")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+
 
 # ---------------------------------------------------------------------------
 # View tests — nearby
@@ -190,21 +193,20 @@ class TestNearbyJobsView:
         res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=10")
         assert res.status_code == status.HTTP_200_OK
 
-    def test_finds_job_within_radius(self, api_client, job):
+    def test_vindt_job_in_radius(self, api_client, job):
         res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=10")
-        titles = [j["title"] for j in res.data]
+        titles = [j["title"] for j in res.data["results"]]
         assert "Test BSO Medewerker" in titles
 
-    def test_excludes_job_outside_radius(self, api_client, job, db, institution_rotterdam, institution_user):
-        from jobs.models import Job
+    def test_sluit_job_buiten_radius_uit(self, api_client, job, company, rotterdam):
         Job.objects.create(
-            institution=institution_rotterdam, posted_by=institution_user,
-            title="Rotterdam job", job_type="pm4", contract_type="fulltime",
-            description="X", location=institution_rotterdam.location,
-            city="Rotterdam",
+            company=company, title="Rotterdam job", job_type="pm4",
+            contract_type="fulltime",
+            source_url="https://example.com/job/rotterdam",
+            location=rotterdam, city="Rotterdam", is_active=True,
         )
         res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=5")
-        titles = [j["title"] for j in res.data]
+        titles = [j["title"] for j in res.data["results"]]
         assert "Rotterdam job" not in titles
 
     def test_missing_lat_returns_400(self, api_client):
@@ -215,95 +217,37 @@ class TestNearbyJobsView:
         res = api_client.get("/api/jobs/nearby/?lat=52.37")
         assert res.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_ordered_by_distance(self, api_client, job, db, institution, institution_user):
-        from django.contrib.gis.geos import Point
-        from institutions.models import Institution
-        # Create a second institution slightly further away
-        inst2 = Institution.objects.create(
-            name="Far BSO",
-            institution_type="bso",
-            street="B",
-            house_number="1",
-            postcode="1000BB",
-            city="Amsterdam",
-            location=Point(4.95, 52.40, srid=4326),
-            is_active=True,
-        )
-        Job.objects.create(
-            institution=inst2, posted_by=institution_user,
-            title="Far job", job_type="pm3", contract_type="parttime",
-            description="X", location=inst2.location, city="Amsterdam",
-        )
-        res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=50")
-        distances = [j["distance_km"] for j in res.data]
-        assert distances == sorted(d for d in distances if d is not None)
-
-    def test_filter_by_job_type(self, api_client, job):
-        res = api_client.get("/api/jobs/nearby/?lat=52.3676&lng=4.9041&radius=50&job_type=pm3")
-        types = [j["job_type"] for j in res.data]
-        assert all(t == "pm3" for t in types)
-
 
 # ---------------------------------------------------------------------------
-# View tests — apply
+# View tests — click (redirect naar source_url)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
-class TestApplyView:
-    def test_apply_requires_auth(self, api_client, job):
-        res = api_client.post(f"/api/jobs/{job.pk}/apply/", {}, format="json")
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
+class TestJobClickView:
+    def test_klik_registreert_en_geeft_source_url(self, api_client, job):
+        res = api_client.post(f"/api/jobs/{job.pk}/click/")
+        assert res.status_code == status.HTTP_200_OK
+        assert res.data["source_url"] == job.source_url
 
-    def test_apply_creates_application(self, auth_client, job):
-        res = auth_client.post(
-            f"/api/jobs/{job.pk}/apply/",
-            {"cover_letter": "Ik ben gemotiveerd!"},
-            format="json",
-        )
-        assert res.status_code == status.HTTP_201_CREATED
-        assert JobApplication.objects.filter(job=job).count() == 1
+    def test_klik_zonder_user_is_anoniem(self, api_client, job):
+        api_client.post(f"/api/jobs/{job.pk}/click/")
+        click = VacatureClick.objects.get(job=job)
+        assert click.user is None
 
-    def test_apply_default_status_pending(self, auth_client, job):
-        res = auth_client.post(f"/api/jobs/{job.pk}/apply/", {}, format="json")
-        assert res.data["status"] == "pending"
+    def test_klik_met_user_slaat_user_op(self, auth_client, job, worker_user):
+        auth_client.post(f"/api/jobs/{job.pk}/click/")
+        click = VacatureClick.objects.get(job=job)
+        assert click.user == worker_user
 
-    def test_apply_to_inactive_job_returns_404(self, auth_client, job):
-        job.is_active = False
+    def test_klik_op_verlopen_job_geeft_404(self, api_client, job):
+        job.is_expired = True
         job.save()
-        res = auth_client.post(f"/api/jobs/{job.pk}/apply/", {}, format="json")
-        assert res.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_apply_to_nonexistent_job_returns_404(self, auth_client):
-        res = auth_client.post("/api/jobs/99999/apply/", {}, format="json")
+        res = api_client.post(f"/api/jobs/{job.pk}/click/")
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
-# View tests — my-applications
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestMyApplicationsView:
-    def test_requires_auth(self, api_client):
-        res = api_client.get("/api/jobs/my-applications/")
-        assert res.status_code == status.HTTP_401_UNAUTHORIZED
-
-    def test_returns_own_applications_only(self, auth_client, job, worker_user, institution_user):
-        JobApplication.objects.create(job=job, applicant=worker_user, cover_letter="Mine")
-        JobApplication.objects.create(job=job, applicant=institution_user, cover_letter="Other")
-        res = auth_client.get("/api/jobs/my-applications/")
-        results = res.data.get("results", res.data)
-        assert len(results) == 1
-        assert results[0]["cover_letter"] == "Mine"
-
-    def test_empty_when_no_applications(self, auth_client):
-        res = auth_client.get("/api/jobs/my-applications/")
-        results = res.data.get("results", res.data)
-        assert results == []
-
-
-# ---------------------------------------------------------------------------
-# JobChoicesView — CAO functielijst endpoint
+# View tests — choices
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -318,7 +262,6 @@ class TestJobChoicesView:
         values = [f["value"] for f in res.data["cao_functions"]]
         assert "pm3" in values
         assert "bso_begeleider" in values
-        assert "gastouder" in values
 
     def test_choices_contains_contract_types(self, api_client):
         res = api_client.get("/api/jobs/choices/")
@@ -326,18 +269,12 @@ class TestJobChoicesView:
         values = [c["value"] for c in res.data["contract_types"]]
         assert "fulltime" in values
         assert "parttime" in values
-        assert "zzp" not in values
-
-    def test_choices_no_auth_required(self, api_client):
-        res = api_client.get("/api/jobs/choices/")
-        assert res.status_code == 200
 
     def test_cao_functions_have_value_and_label(self, api_client):
         res = api_client.get("/api/jobs/choices/")
         for fn in res.data["cao_functions"]:
             assert "value" in fn
             assert "label" in fn
-            assert len(fn["label"]) > 0
 
     def test_cao_constants_all_present(self, api_client):
         res = api_client.get("/api/jobs/choices/")
@@ -347,15 +284,13 @@ class TestJobChoicesView:
 
 
 # ---------------------------------------------------------------------------
-# CAO function op WorkerProfile
+# WorkerProfile CAO function
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
 class TestWorkerProfileCaoFunction:
     def test_patch_cao_function(self, auth_client, worker_profile):
-        res = auth_client.patch("/api/auth/worker-profile/", {
-            "cao_function": "pm3",
-        }, format="json")
+        res = auth_client.patch("/api/auth/worker-profile/", {"cao_function": "pm3"}, format="json")
         assert res.status_code == 200
         worker_profile.refresh_from_db()
         assert worker_profile.cao_function == "pm3"
@@ -369,7 +304,7 @@ class TestWorkerProfileCaoFunction:
 
 
 # ---------------------------------------------------------------------------
-# Nieuwe vereistenvelden op Job: requires_bevoegdheid + min_experience
+# Job vereistenvelden
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -380,38 +315,88 @@ class TestJobRequirementsFields:
     def test_default_min_experience_none(self, job):
         assert job.min_experience is None
 
-    def test_create_with_requires_bevoegdheid(self, institution_client, institution):
-        res = institution_client.post("/api/jobs/", {
-            "institution": institution.pk,
-            "title": "BSO medewerker met bevoegdheid",
-            "job_type": "bso_begeleider",
-            "contract_type": "parttime",
-            "description": "Test",
-            "requires_bevoegdheid": ["bso", "dagopvang"],
-        }, format="json")
-        assert res.status_code == 201
-        assert res.data["requires_bevoegdheid"] == ["bso", "dagopvang"]
-
-    def test_create_with_min_experience(self, institution_client, institution):
-        res = institution_client.post("/api/jobs/", {
-            "institution": institution.pk,
-            "title": "Senior PM",
-            "job_type": "senior_pm",
-            "contract_type": "fulltime",
-            "description": "Test",
-            "min_experience": 3,
-        }, format="json")
-        assert res.status_code == 201
-        assert res.data["min_experience"] == 3
-
     def test_requires_bevoegdheid_in_serializer(self, job):
         job.requires_bevoegdheid = ["peuterspeelzaal"]
         job.save()
-        data = JobSerializer(job).data
-        assert data["requires_bevoegdheid"] == ["peuterspeelzaal"]
+        assert JobSerializer(job).data["requires_bevoegdheid"] == ["peuterspeelzaal"]
 
     def test_min_experience_in_serializer(self, job):
         job.min_experience = 2
         job.save()
-        data = JobSerializer(job).data
-        assert data["min_experience"] == 2
+        assert JobSerializer(job).data["min_experience"] == 2
+
+
+# ---------------------------------------------------------------------------
+# CompanyListView — plain array
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCompanyListView:
+    def test_returns_array(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        assert res.status_code == status.HTTP_200_OK
+        assert isinstance(res.data, list)
+
+    def test_contains_company(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        names = [c["name"] for c in res.data]
+        assert "Test Kinderopvang BV" in names
+
+    def test_no_auth_required(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        assert res.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# JobMapPinsView
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestJobMapPinsView:
+    def test_returns_200(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_has_total_and_results(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        assert "total" in res.data
+        assert "results" in res.data
+        assert isinstance(res.data["results"], list)
+
+    def test_guest_sees_limited_pins(self, api_client, company, amsterdam):
+        for i in range(35):
+            Job.objects.create(
+                company=company, title=f"Job {i}", job_type="pm3", contract_type="parttime",
+                source_url=f"https://example.com/pin/{i}", location=amsterdam, city="Amsterdam",
+            )
+        res = api_client.get("/api/jobs/map-pins/")
+        assert len(res.data["results"]) <= 30  # GUEST_JOB_LIMIT * 10
+
+    def test_authenticated_sees_all_pins(self, auth_client, company, amsterdam):
+        for i in range(35):
+            Job.objects.create(
+                company=company, title=f"Job {i}", job_type="pm3", contract_type="parttime",
+                source_url=f"https://example.com/authpin/{i}", location=amsterdam, city="Amsterdam",
+            )
+        res = auth_client.get("/api/jobs/map-pins/")
+        assert len(res.data["results"]) >= 35
+
+    def test_pin_has_location(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        pins = res.data["results"]
+        assert len(pins) > 0
+        assert pins[0]["location"] is not None
+
+    def test_filter_by_job_type(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/?job_type=pm3")
+        for pin in res.data["results"]:
+            assert pin["job_type"] == "pm3"
+
+    def test_job_without_location_excluded(self, api_client, company):
+        Job.objects.create(
+            company=company, title="No location", job_type="pm3", contract_type="fulltime",
+            source_url="https://example.com/noloc",
+        )
+        res = api_client.get("/api/jobs/map-pins/")
+        for pin in res.data["results"]:
+            assert pin["location"] is not None

@@ -30,7 +30,7 @@ class CustomUserAdmin(UserAdmin, ModelAdmin):
 @admin.register(WorkerProfile)
 class WorkerProfileAdmin(ModelAdmin):
     list_display = ["user", "city", "work_radius_km", "is_available", "vog_verified", "has_diploma", "is_premium"]
-    list_filter = ["is_available", "vog_verified", "has_diploma", "is_premium"]
+    list_filter = ["is_available", "vog_verified", "has_diploma", "is_premium", "kdv_proof_required", "bso_proof_required"]
     search_fields = ["user__username", "user__email", "city"]
     readonly_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
@@ -47,6 +47,9 @@ class WorkerProfileAdmin(ModelAdmin):
         }),
         ("Compliance", {
             "fields": ["has_vog", "vog_verified", "has_diploma", "diploma_verified"],
+        }),
+        ("Opvangtype & Diploma-vereisten", {
+            "fields": ["opvangtype", "kdv_proof_required", "bso_proof_required"],
         }),
         ("Status", {
             "fields": ["is_premium"],

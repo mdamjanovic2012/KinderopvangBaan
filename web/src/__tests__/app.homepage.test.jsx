@@ -6,6 +6,7 @@ import { render, screen } from "@testing-library/react";
 import Home from "@/app/page";
 
 jest.mock("@/components/Nav", () => function MockNav() { return <nav data-testid="nav" />; });
+jest.mock("@/components/HomeDiplomaCheck", () => function MockDiplomaCheck() { return <div data-testid="diploma-check" />; });
 
 jest.mock("next/link", () => {
   return function MockLink({ href, children, className }) {
@@ -22,60 +23,99 @@ describe("Homepage — Hero", () => {
     );
   });
 
-  it("renders the subtitel", () => {
+  it("renders subtitle over loondienst en cao", () => {
     expect(
-      screen.getByText("Alleen voor loondienst binnen de kinderopvang cao")
+      screen.getByText("Alleen loondienst · kinderopvang cao · alle grote organisaties")
     ).toBeInTheDocument();
   });
 
-  it("renders the gratis extra regel", () => {
+  it("renders gratis voor werkzoekenden badge", () => {
     expect(
-      screen.getByText("Volledig gratis voor werkzoekenden en werkgevers")
+      screen.getByText("Volledig gratis voor werkzoekenden")
     ).toBeInTheDocument();
   });
 
-  it("renders Zoek vacatures CTA linking to /jobs", () => {
-    const link = screen.getByRole("link", { name: "Zoek vacatures" });
+  it("renders Bekijk alle vacatures CTA linking to /jobs", () => {
+    const link = screen.getByRole("link", { name: "Bekijk alle vacatures" });
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/jobs");
   });
 
-  it("renders Plaats gratis vacature CTA", () => {
-    const link = screen.getByRole("link", { name: "Plaats gratis vacature" });
+  it("renders In mijn buurt zoeken CTA linking to /map", () => {
+    const link = screen.getByRole("link", { name: /In mijn buurt zoeken/ });
     expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/dashboard/vacatures/nieuw");
+    expect(link).toHaveAttribute("href", "/map");
   });
 
-  it("does NOT render old Bekijk de kaart CTA", () => {
-    expect(screen.queryByText("Bekijk de kaart")).not.toBeInTheDocument();
+  it("does NOT render old Plaats gratis vacature CTA", () => {
+    expect(screen.queryByText("Plaats gratis vacature")).not.toBeInTheDocument();
   });
 
-  it("does NOT render old Alle vacatures CTA", () => {
-    expect(screen.queryByText("Alle vacatures")).not.toBeInTheDocument();
+  it("does NOT render old werkgevers sectie", () => {
+    expect(screen.queryByText(/Bereik de juiste professionals/i)).not.toBeInTheDocument();
   });
 });
 
-describe("Homepage — Gratis badge", () => {
+describe("Homepage — Voordelen badges", () => {
   beforeEach(() => render(<Home />));
 
-  it("renders gratis voor werkzoekenden badge item", () => {
+  it("renders vacatures op afstand badge", () => {
     expect(
-      screen.getByText("Volledig gratis en ruim aanbod voor werkzoekenden")
+      screen.getByText(/Vacatures gesorteerd op afstand/i)
     ).toBeInTheDocument();
   });
 
-  it("renders gratis vacatures plaatsen badge item", () => {
+  it("renders grote organisaties badge", () => {
     expect(
-      screen.getByText("Vacatures plaatsen is volledig gratis")
+      screen.getByText(/Partou.*Kinderdam.*alle grote organisaties/i)
     ).toBeInTheDocument();
   });
 
-  it("renders live in minuten badge item", () => {
+  it("renders automatisch gesynchroniseerd badge", () => {
     expect(
-      screen.getByText(
-        "Heb je al vacatures? Wij zetten ze voor je live in minuten."
-      )
+      screen.getByText(/automatisch gesynchroniseerd/i)
     ).toBeInTheDocument();
+  });
+});
+
+describe("Homepage — Hoe het werkt", () => {
+  beforeEach(() => render(<Home />));
+
+  it("renders Hoe het werkt heading", () => {
+    expect(
+      screen.getByText("In drie stappen naar jouw nieuwe baan")
+    ).toBeInTheDocument();
+  });
+
+  it("renders stap 1 — Registreer gratis", () => {
+    expect(screen.getByText("Registreer gratis")).toBeInTheDocument();
+  });
+
+  it("renders stap 2 — Zoek dichtbij huis", () => {
+    expect(screen.getByText("Zoek dichtbij huis")).toBeInTheDocument();
+  });
+
+  it("renders stap 3 — Solliciteer direct", () => {
+    expect(screen.getByText("Solliciteer direct")).toBeInTheDocument();
+  });
+
+  it("renders Gratis registreren CTA", () => {
+    const link = screen.getByRole("link", { name: /Gratis registreren/i });
+    expect(link).toHaveAttribute("href", "/register");
+  });
+});
+
+describe("Homepage — Stats", () => {
+  beforeEach(() => render(<Home />));
+
+  it("renders 500+ actuele vacatures stat", () => {
+    expect(screen.getByText("500+")).toBeInTheDocument();
+    expect(screen.getByText("Actuele vacatures")).toBeInTheDocument();
+  });
+
+  it("renders 100% gratis stat", () => {
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByText("Gratis voor werkzoekenden")).toBeInTheDocument();
   });
 });
 
@@ -84,55 +124,19 @@ describe("Homepage — Waarom wij bestaan", () => {
 
   it("renders the mission heading", () => {
     expect(
-      screen.getByText(
-        "Wij lossen het personeelstekort in de kinderopvang op"
-      )
+      screen.getByText("Wij lossen het personeelstekort in de kinderopvang op")
     ).toBeInTheDocument();
   });
 
-  it("renders the Waarom wij bestaan CTA button", () => {
-    const link = screen.getByRole("link", { name: "Waarom wij bestaan" });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/over-ons");
+  it("renders Bekijk vacatures CTA", () => {
+    const links = screen.getAllByRole("link", { name: /Bekijk vacatures/i });
+    expect(links.length).toBeGreaterThan(0);
+    expect(links[0]).toHaveAttribute("href", "/jobs");
   });
 
-  it("renders personeelstekort mission bullet", () => {
-    expect(
-      screen.getByText(/personeelstekort.*wij helpen dat op te lossen/i)
-    ).toBeInTheDocument();
-  });
-
-  it("renders gratis stat block", () => {
-    expect(screen.getByText("100%")).toBeInTheDocument();
-    expect(screen.getByText("Gratis voor iedereen")).toBeInTheDocument();
-  });
-});
-
-describe("Homepage — Werkgevers sectie", () => {
-  beforeEach(() => render(<Home />));
-
-  it("renders werkgevers heading", () => {
-    expect(
-      screen.getByText("Bereik de juiste professionals — gratis")
-    ).toBeInTheDocument();
-  });
-
-  it("renders Gratis vacature plaatsen CTA linking to /register", () => {
-    const link = screen.getByRole("link", { name: "Gratis vacature plaatsen" });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/register");
-  });
-
-  it("renders werkenbij-pagina mention", () => {
-    expect(
-      screen.getAllByText(/werkenbij-pagina/i).length
-    ).toBeGreaterThan(0);
-  });
-
-  it("renders Neem contact op CTA", () => {
-    const link = screen.getByRole("link", { name: "Neem contact op" });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/contact");
+  it("renders diplomacheck CTA", () => {
+    const link = screen.getByRole("link", { name: /Doe de diplomacheck/i });
+    expect(link).toHaveAttribute("href", "/diplomacheck");
   });
 });
 

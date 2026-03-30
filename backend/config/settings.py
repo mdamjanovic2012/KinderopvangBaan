@@ -16,6 +16,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-change-me")
 DEBUG = os.getenv("DEBUG", "True") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+CSRF_TRUSTED_ORIGINS = [
+    f"https://{h}" for h in ALLOWED_HOSTS if h not in ("localhost", "127.0.0.1")
+] + ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+# Azure App Service zit achter een reverse proxy — laat Django HTTPS detecteren
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Cookies alleen via HTTPS in productie, HTTP toestaan in dev
+_is_prod = not DEBUG
+SESSION_COOKIE_SECURE = _is_prod
+CSRF_COOKIE_SECURE = _is_prod
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 
 INSTALLED_APPS = [
     "unfold",
@@ -36,7 +50,6 @@ INSTALLED_APPS = [
 
     # local
     "users",
-    "institutions",
     "jobs",
     "diplomacheck",
 ]
@@ -159,21 +172,6 @@ UNFOLD = {
                 ],
             },
             {
-                "title": "Organisaties",
-                "items": [
-                    {
-                        "title": "Alle organisaties",
-                        "icon": "business",
-                        "link": reverse_lazy("admin:institutions_institution_changelist"),
-                    },
-                    {
-                        "title": "Reviews",
-                        "icon": "star",
-                        "link": reverse_lazy("admin:institutions_review_changelist"),
-                    },
-                ],
-            },
-            {
                 "title": "Vacatures",
                 "items": [
                     {
@@ -182,9 +180,9 @@ UNFOLD = {
                         "link": reverse_lazy("admin:jobs_job_changelist"),
                     },
                     {
-                        "title": "Sollicitaties",
-                        "icon": "send",
-                        "link": reverse_lazy("admin:jobs_jobapplication_changelist"),
+                        "title": "Bedrijven",
+                        "icon": "domain",
+                        "link": reverse_lazy("admin:jobs_company_changelist"),
                     },
                 ],
             },

@@ -1,53 +1,64 @@
+import hashlib
+
 from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
-from institutions.models import Institution
-from .models import Job, JobApplication
-from .serializers import JobSerializer, JobApplicationSerializer
-from .constants import CAO_FUNCTIONS, CAO_FUNCTION_VALUES
+
+from .models import Company, Job, VacatureClick
+from .serializers import CompanySerializer, JobSerializer, JobMapPinSerializer, VacatureClickSerializer
+from .constants import CAO_FUNCTIONS
+
+GUEST_JOB_LIMIT = 3
 
 
-class JobListCreateView(generics.ListCreateAPIView):
+class JobListView(generics.ListAPIView):
     serializer_class = JobSerializer
-    filterset_fields = ["job_type", "contract_type", "city", "is_active"]
-    search_fields = ["title", "description", "city"]
-
-    def get_authenticators(self):
-        if self.request.method == "GET":
-            return []
-        return super().get_authenticators()
-
-    def get_permissions(self):
-        if self.request.method == "GET":
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+    filterset_fields = ["job_type", "contract_type", "city", "is_active", "company"]
+    search_fields = ["title", "description", "city", "location_name"]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Job.objects.filter(is_active=True).select_related("institution")
+        return (
+            Job.objects
+            .filter(is_active=True, is_expired=False)
+            .select_related("company")
+            .order_by("-created_at")
+        )
 
-    def perform_create(self, serializer):
-        institution = serializer.validated_data["institution"]
-        # Copy location from institution if not supplied
-        location = serializer.validated_data.get("location") or institution.location
-        city = serializer.validated_data.get("city") or institution.city
-        serializer.save(posted_by=self.request.user, location=location, city=city)
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        total = queryset.count()
+
+        is_authenticated = request.user and request.user.is_authenticated
+        if not is_authenticated:
+            queryset = queryset[:GUEST_JOB_LIMIT]
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            "total": total,
+            "shown": len(serializer.data),
+            "blurred": not is_authenticated and total > GUEST_JOB_LIMIT,
+            "results": serializer.data,
+        })
 
 
 class JobDetailView(generics.RetrieveAPIView):
     serializer_class = JobSerializer
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
-    queryset = Job.objects.filter(is_active=True)
+    queryset = Job.objects.filter(is_active=True, is_expired=False).select_related("company")
 
 
 class NearbyJobsView(APIView):
     """
-    GET /api/jobs/nearby/?lat=52.37&lng=4.89&radius=15&type=bso
+    GET /api/jobs/nearby/?lat=52.37&lng=4.89&radius=15&job_type=bso
     """
-    authentication_classes = []
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -55,51 +66,62 @@ class NearbyJobsView(APIView):
             lat = float(request.query_params["lat"])
             lng = float(request.query_params["lng"])
         except (KeyError, ValueError):
-            return Response({"error": "lat and lng required."}, status=400)
+            return Response({"error": "lat en lng zijn verplicht."}, status=400)
 
         radius = float(request.query_params.get("radius", 15))
         job_type = request.query_params.get("job_type")
 
         point = Point(lng, lat, srid=4326)
-        qs = Job.objects.filter(
-            is_active=True,
-            location__distance_lte=(point, D(km=radius)),
-        ).annotate(
-            distance=Distance("location", point)
-        ).order_by("distance").select_related("institution")
+        qs = (
+            Job.objects
+            .filter(is_active=True, is_expired=False, location__distance_lte=(point, D(km=radius)))
+            .annotate(distance=Distance("location", point))
+            .order_by("distance")
+            .select_related("company")
+        )
 
         if job_type:
             qs = qs.filter(job_type=job_type)
 
-        return Response(JobSerializer(qs, many=True).data)
+        is_authenticated = request.user and request.user.is_authenticated
+        total = qs.count()
+        if not is_authenticated:
+            qs = qs[:GUEST_JOB_LIMIT]
+
+        return Response({
+            "total": total,
+            "shown": qs.count() if is_authenticated else min(total, GUEST_JOB_LIMIT),
+            "blurred": not is_authenticated and total > GUEST_JOB_LIMIT,
+            "results": JobSerializer(qs, many=True).data,
+        })
 
 
-class ApplyView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+class JobClickView(APIView):
+    """
+    POST /api/jobs/{pk}/click/
+    Registreert een klik en geeft de source_url terug voor redirect.
+    """
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request, pk):
         try:
-            job = Job.objects.get(pk=pk, is_active=True)
+            job = Job.objects.get(pk=pk, is_active=True, is_expired=False)
         except Job.DoesNotExist:
             return Response({"error": "Vacature niet gevonden."}, status=404)
-        serializer = JobApplicationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save(job=job, applicant=request.user)
-        return Response(serializer.data, status=201)
 
+        ip = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", ""))
+        ip_hash = hashlib.sha256(ip.encode()).hexdigest() if ip else ""
 
-class MyApplicationsView(generics.ListAPIView):
-    serializer_class = JobApplicationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+        user = request.user if request.user.is_authenticated else None
+        VacatureClick.objects.create(job=job, user=user, ip_hash=ip_hash)
 
-    def get_queryset(self):
-        return JobApplication.objects.filter(applicant=self.request.user).select_related("job")
+        return Response({"source_url": job.source_url})
 
 
 class JobChoicesView(APIView):
     """
     GET /api/jobs/choices/
-    Geeft de vaste CAO functielijst + contract types terug.
     """
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
@@ -112,4 +134,44 @@ class JobChoicesView(APIView):
                 {"value": "parttime", "label": "Part-time"},
                 {"value": "temp", "label": "Tijdelijk"},
             ],
+        })
+
+
+class CompanyListView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        companies = Company.objects.filter(is_active=True)
+        return Response(CompanySerializer(companies, many=True).data)
+
+
+class JobMapPinsView(APIView):
+    """
+    GET /api/jobs/map-pins/
+    Lichtgewicht endpoint voor kaartpinnen — alleen jobs met locatie.
+    Gasten zien een beperkt aantal pinnen; ingelogde gebruikers alles.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        qs = (
+            Job.objects
+            .filter(is_active=True, is_expired=False, location__isnull=False)
+            .select_related("company")
+        )
+        job_type = request.query_params.get("job_type")
+        if job_type:
+            qs = qs.filter(job_type=job_type)
+
+        is_authenticated = request.user and request.user.is_authenticated
+        total = qs.count()
+        if not is_authenticated:
+            qs = qs[:GUEST_JOB_LIMIT * 10]  # toon beperkt aantal pinnen voor gasten
+
+        return Response({
+            "total": total,
+            "blurred": not is_authenticated and total > GUEST_JOB_LIMIT * 10,
+            "results": JobMapPinSerializer(qs, many=True).data,
         })
