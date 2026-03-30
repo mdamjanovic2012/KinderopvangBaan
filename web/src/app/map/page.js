@@ -193,29 +193,58 @@ export default function MapPage() {
       {/* Map + sidebar */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar list */}
-        <div className={`${mobileView === "list" ? "flex" : "hidden"} sm:flex w-full sm:w-80 shrink-0 overflow-y-auto border-r border-gray-100 bg-white flex-col`}>
-          {jobs.length === 0 && !loading && (
-            <div className="p-6 text-center text-gray-400 text-sm">Geen vacatures gevonden.</div>
-          )}
-          {jobs.map((job) => (
-            <Link
-              key={job.id}
-              href={`/jobs/${job.id}`}
-              className="flex flex-col p-4 border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer group"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                  {getCaoLabel(job.job_type) || job.job_type}
-                </span>
+        <div className={`${mobileView === "list" ? "flex" : "hidden"} sm:flex w-full sm:w-80 shrink-0 border-r border-gray-100 bg-white flex-col relative`}>
+          {/* Blur overlay voor gasten */}
+          {blurred && !user && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center z-20">
+              <div className="absolute inset-0 bg-white/60 backdrop-blur-sm" />
+              <div className="relative z-10 bg-white rounded-2xl shadow-xl px-6 py-5 text-center max-w-xs mx-4">
+                <div className="text-2xl mb-2">📋</div>
+                <h2 className="text-base font-bold text-gray-900 mb-1">
+                  Bekijk alle {total} vacatures
+                </h2>
+                <p className="text-xs text-gray-500 mb-4">
+                  Registreer gratis en zie alle vacatures in de lijst.
+                </p>
+                <Link
+                  href="/register"
+                  className="block w-full bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-xl hover:bg-blue-800 transition-colors text-center"
+                >
+                  Gratis registreren →
+                </Link>
+                <Link
+                  href="/login"
+                  className="block mt-2 text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  Al een account? Inloggen
+                </Link>
               </div>
-              <span className="font-medium text-gray-900 text-sm group-hover:text-blue-700 transition-colors">
-                {job.title}
-              </span>
-              <span className="text-xs text-gray-400 mt-0.5">
-                {job.company_name} · {job.city}
-              </span>
-            </Link>
-          ))}
+            </div>
+          )}
+          <div className="overflow-y-auto flex-1">
+            {jobs.length === 0 && !loading && (
+              <div className="p-6 text-center text-gray-400 text-sm">Geen vacatures gevonden.</div>
+            )}
+            {jobs.map((job) => (
+              <Link
+                key={job.id}
+                href={`/jobs/${job.id}`}
+                className="flex flex-col p-4 border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer group"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                    {getCaoLabel(job.job_type) || job.job_type}
+                  </span>
+                </div>
+                <span className="font-medium text-gray-900 text-sm group-hover:text-blue-700 transition-colors">
+                  {job.title}
+                </span>
+                <span className="text-xs text-gray-400 mt-0.5">
+                  {job.company_name} · {job.city}
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
 
         {/* Map */}

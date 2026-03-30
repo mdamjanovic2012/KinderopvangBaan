@@ -36,7 +36,6 @@ class Migration(migrations.Migration):
 
         # ── Verwijder FK-velden van Job ───────────────────────────────────────
         migrations.RemoveField(model_name="job", name="posted_by"),
-        migrations.RemoveField(model_name="job", name="institution"),
 
         # ── Wis incompatibele Job-data (na FK-verwijdering) ───────────────────
         migrations.RunPython(clear_jobs, migrations.RunPython.noop),

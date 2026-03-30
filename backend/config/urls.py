@@ -20,7 +20,6 @@ urlpatterns = [
     path("api/auth/", include("users.urls")),
 
     # Core
-    path("api/institutions/", include("institutions.urls")),
     path("api/jobs/", include("jobs.urls")),
     path("api/users/", include("users.urls")),
     path("api/diplomacheck/", include("diplomacheck.urls")),
