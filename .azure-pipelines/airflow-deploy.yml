@@ -84,8 +84,8 @@ jobs:
               --registry-login-server $(ACR_LOGIN_SERVER) \
               --registry-username $(ACR_NAME) \
               --registry-password "$ACR_PASSWORD" \
-              --cpu 1 \
-              --memory 2 \
+              --cpu 2 \
+              --memory 4 \
               --os-type Linux \
               --restart-policy Always \
               --ip-address Public \
@@ -95,6 +95,7 @@ jobs:
                 AIRFLOW__CORE__EXECUTOR=LocalExecutor \
                 AIRFLOW__CORE__LOAD_EXAMPLES=False \
                 AIRFLOW__WEBSERVER__EXPOSE_CONFIG=False \
+                AIRFLOW__WEBSERVER__WEB_SERVER_MASTER_TIMEOUT=600 \
               --secure-environment-variables \
                 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="$AIRFLOW_DB_URL" \
                 AIRFLOW__WEBSERVER__SECRET_KEY="$(AIRFLOW_SECRET_KEY)" \
