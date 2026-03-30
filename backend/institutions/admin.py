@@ -53,14 +53,12 @@ class InstitutionAdmin(ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(
-            _job_count=Count("jobs", distinct=True),
             _avg_rating=Avg("reviews__rating"),
         )
 
     def job_count(self, obj):
-        return obj._job_count
+        return "—"
     job_count.short_description = "Vacatures"
-    job_count.admin_order_field = "_job_count"
 
     def avg_rating_display(self, obj):
         if obj._avg_rating is None:

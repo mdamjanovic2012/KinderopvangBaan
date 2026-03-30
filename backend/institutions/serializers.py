@@ -85,14 +85,13 @@ class InstitutionDetailSerializer(InstitutionSerializer):
             sibling_qs = obj.children.filter(is_active=True)
 
         result = []
-        for loc in sibling_qs.prefetch_related("jobs"):
-            active_jobs = loc.jobs.filter(is_active=True).count()
+        for loc in sibling_qs:
             result.append({
                 "id": loc.id,
                 "name": loc.name,
                 "city": loc.city,
                 "institution_type": loc.institution_type,
-                "active_job_count": active_jobs,
+                "active_job_count": 0,
             })
         return result
 
