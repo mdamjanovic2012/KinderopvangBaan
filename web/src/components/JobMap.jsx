@@ -132,7 +132,7 @@ export default function JobMap({ jobs = [], center }) {
                 const lngs = leaves.map((l) => l.geometry.coordinates[0]);
                 const lats = leaves.map((l) => l.geometry.coordinates[1]);
                 const padding = 80;
-                mapRef.current?.fitBounds(
+                mapRef.current?.fitBounds?.(
                   [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
                   { padding, maxZoom: 14, duration: 500 }
                 );
