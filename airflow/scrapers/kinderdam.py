@@ -1,15 +1,20 @@
 """
 Kinderdam scraper — ikwerkaandetoekomst.nl
 
-Job board: https://www.ikwerkaandetoekomst.nl/vacatures-kinderopvang-en-kindontwikkeling
+Scraping structuur (3 niveaus):
+  1. Hoofdpagina /vacatures-kinderopvang-en-kindontwikkeling
+     → Banner toont 14 regio-subpagina's (a.webBanner-banneritem)
+  2. Elke regio-pagina (bijv. /vacatures-kinderopvang-rotterdam-centrum)
+     → Toont vacaturekaarten (a.vtlink[href*=vacaturebeschrijving])
+     → Elke kaart bevat: titel, werksoort, standplaats, uren (span.text in volgorde)
+  3. Detailpagina (/vacaturebeschrijving-kinderdam/[slug])
+     → Volledige functiebeschrijving
 
-Aanpak:
-- Laad de vacaturepagina met BeautifulSoup
-- Haal alle vacaturekaarten op (klasse .vacancy-card of vergelijkbaar)
-- Bezoek elke detailpagina voor beschrijving + extra metadata
+Dubbele vacatures (zelfde URL op meerdere regio-pagina's) worden
+gededupliceerd op source_url.
 
-SELECTOR AANPASSEN: als de site update, zoek eerst de correcte selectors via
-'Inspecteren' in de browser. Verander CARD_SELECTOR, TITLE_SEL, etc.
+Site gebruikt Anta CMS (AFAS) met JavaScript-rendering. Playwright
+is vereist om de pagina volledig te renderen.
 """
 
 import logging
@@ -18,6 +23,8 @@ import time
 
 import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, BrowserContext
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from scrapers.base import BaseScraper, SCRAPER_HEADERS
 
@@ -26,36 +33,41 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://www.ikwerkaandetoekomst.nl"
 JOBS_URL = f"{BASE_URL}/vacatures-kinderopvang-en-kindontwikkeling"
 
-# ── CSS-selectors (aanpassen als de site wijzigt) ─────────────────────────────
-CARD_SELECTOR      = "article.vacancy, div.vacancy-item, li.job-listing"
-TITLE_SEL          = "h2, h3, .vacancy-title, .job-title"
-URL_SEL            = "a[href]"
-LOCATION_SEL       = ".location, .vacancy-location, [class*='location']"
-CONTRACT_SEL       = ".contract-type, [class*='contract'], [class*='dienstverband']"
-HOURS_SEL          = ".hours, [class*='hours'], [class*='uren']"
-SALARY_SEL         = ".salary, [class*='salary'], [class*='salaris']"
-AGE_SEL            = ".age-group, [class*='age'], [class*='leeftijd']"
-SHORT_DESC_SEL     = ".excerpt, .summary, p.description"
-# ─────────────────────────────────────────────────────────────────────────────
+# Banner-div ID op hoofdpagina (regio-links)
+BANNER_CONTENT_ID = "P_C_W_DE4F98294C77056F1870AF8B77D269DD_Content"
 
-HOURS_RE   = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
-SALARY_RE  = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
-AGE_RE     = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*jaar", re.I)
+# ── Regex parsers ──────────────────────────────────────────────────────────────
+HOURS_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)", re.I)
+SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+AGE_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*jaar", re.I)
 
 CONTRACT_MAP = {
-    "fulltime": "fulltime",
+    "fulltime":  "fulltime",
     "full-time": "fulltime",
-    "parttime": "parttime",
+    "parttime":  "parttime",
     "part-time": "parttime",
     "tijdelijk": "temp",
-    "temporary": "temp",
+}
+
+# Werksoort → job_type (CAO functies)
+WERKSOORT_MAP = {
+    "bso":                     "bso_begeleider",
+    "kdv":                     "pm3",
+    "kdv/bso":                 "pm3",
+    "peuteropvang":            "pm3",
+    "gastouder":               "gastouder",
+    "nanny":                   "nanny",
+    "stagiair":                "stagiair",
+    "teamleider":              "teamleider",
+    "locatiemanager":          "locatiemanager",
+    "coördinator":             "coordinator_bso",
+    "pedagogisch professional": "senior_pm",
 }
 
 
 def _parse_euros(raw: str) -> float | None:
-    cleaned = raw.replace(".", "").replace(",", ".").strip()
     try:
-        return float(cleaned)
+        return float(raw.replace(".", "").replace(",", ".").strip())
     except ValueError:
         return None
 
@@ -67,37 +79,134 @@ def _parse_contract(raw: str) -> str:
     return ""
 
 
-def _scrape_detail(url: str, session: requests.Session) -> dict:
-    """Haal detailpagina op en extraheer extra velden."""
+def _werksoort_to_job_type(werksoort: str) -> str:
+    ws = werksoort.lower().strip()
+    for key, val in WERKSOORT_MAP.items():
+        if key in ws:
+            return val
+    return ""
+
+
+def _render_page(context: BrowserContext, url: str, wait_for_id: str | None = None) -> str:
+    """Render een pagina met Playwright en geef de volledige HTML terug."""
+    page = context.new_page()
     try:
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "lxml")
+        page.goto(url, wait_until="networkidle", timeout=60_000)
+        if wait_for_id:
+            try:
+                page.wait_for_function(
+                    f"document.getElementById('{wait_for_id}')?.children?.length > 0",
+                    timeout=30_000,
+                )
+            except PlaywrightTimeout:
+                logger.warning(f"[kinderdam] Timeout wachten op #{wait_for_id}")
+        page.wait_for_timeout(2_000)
+        return page.content()
+    finally:
+        page.close()
 
-        description = ""
-        for sel in [".job-description", ".vacancy-description", "article .content", "main"]:
-            el = soup.select_one(sel)
-            if el:
-                description = el.get_text(separator="\n", strip=True)
-                break
 
-        return {"description": description}
-    except Exception as exc:
-        logger.warning(f"Detailpagina mislukt voor {url}: {exc}")
-        return {}
+def _get_regio_urls(html: str) -> list[str]:
+    """
+    Extraheer regio-subpagina URL's van de hoofdvacaturepagina.
+    Verwacht: a.webBanner-banneritem met href naar regio-pagina's.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    banner = soup.find(id=BANNER_CONTENT_ID) or soup
+    urls = []
+    for a in banner.select("a.webBanner-banneritem[href]"):
+        href = a.get("href", "")
+        if not href.startswith("http"):
+            href = BASE_URL + href
+        if href and href not in urls:
+            urls.append(href)
+    logger.info(f"[kinderdam] {len(urls)} regio-pagina's gevonden")
+    return urls
+
+
+def _extract_cards_from_regio_page(html: str) -> list[dict]:
+    """
+    Extraheer vacaturekaarten van een regio-subpagina.
+    Verwacht: a.vtlink[href*='vacaturebeschrijving'] met span.text in volgorde:
+      [0] titel, [1] werksoort, [2] standplaats/locatie, [3] uren
+    """
+    soup = BeautifulSoup(html, "lxml")
+    seen = set()
+    jobs = []
+
+    for card in soup.select("a.vtlink[href*='vacaturebeschrijving']"):
+        href = card.get("href", "")
+        if not href.startswith("http"):
+            href = BASE_URL + href
+        if not href or href in seen:
+            continue
+        seen.add(href)
+
+        # span.text elementen in volgorde: titel, werksoort, standplaats, uren
+        spans = [s.get_text(strip=True) for s in card.select("span.text") if s.get_text(strip=True)]
+
+        title       = spans[0] if len(spans) > 0 else ""
+        werksoort   = spans[1] if len(spans) > 1 else ""
+        location    = spans[2] if len(spans) > 2 else ""
+        uren_raw    = spans[3] if len(spans) > 3 else ""
+
+        if not title:
+            continue
+
+        hours_min = hours_max = None
+        m = HOURS_RE.search(uren_raw)
+        if m:
+            hours_min, hours_max = int(m.group(1)), int(m.group(2))
+
+        jobs.append({
+            "source_url":       href,
+            "external_id":      href.rstrip("/").split("/")[-1],
+            "title":            title,
+            "short_description": "",
+            "description":      "",
+            "location_name":    location,
+            "salary_min":       None,
+            "salary_max":       None,
+            "hours_min":        hours_min,
+            "hours_max":        hours_max,
+            "age_min":          None,
+            "age_max":          None,
+            "contract_type":    "",
+            "job_type":         _werksoort_to_job_type(werksoort),
+        })
+
+    return jobs
+
+
+def _extract_description_from_html(html: str) -> str:
+    """Extraheer vacaturebeschrijving van een detailpagina."""
+    soup = BeautifulSoup(html, "lxml")
+    for sel in [
+        "[class*='job-description']",
+        "[class*='vacancy-description']",
+        "[class*='freehtmlparagraph']",
+        ".staticwebform",
+        "article",
+        "main",
+    ]:
+        el = soup.select_one(sel)
+        if el:
+            text = el.get_text(separator="\n", strip=True)
+            if len(text) > 50:
+                return text[:5000]
+    return ""
 
 
 class KinderdamScraper(BaseScraper):
     company_slug = "kinderdam"
 
     def fetch_company(self) -> dict:
-        """Scrapet bedrijfsinfo van de Kinderdam homepage."""
+        """Scrapet bedrijfsinfo van de homepage."""
         try:
             resp = requests.get(BASE_URL, headers=SCRAPER_HEADERS, timeout=15)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
 
-            # Logo — zoek in header
             logo_url = ""
             for sel in ["header img[src]", ".logo img[src]", "img.logo[src]", "img[alt*='logo' i][src]"]:
                 el = soup.select_one(sel)
@@ -106,7 +215,6 @@ class KinderdamScraper(BaseScraper):
                     logo_url = src if src.startswith("http") else BASE_URL + src
                     break
 
-            # Beschrijving — meta description of eerste alinea
             description = ""
             meta = soup.select_one("meta[name='description']")
             if meta:
@@ -127,113 +235,56 @@ class KinderdamScraper(BaseScraper):
         }
 
     def fetch_jobs(self) -> list[dict]:
-        session = requests.Session()
-        session.headers.update(SCRAPER_HEADERS)
+        logger.info(f"[kinderdam] Start scrape via Playwright: {JOBS_URL}")
 
-        jobs = []
-        page = 1
-
-        while True:
-            url = JOBS_URL if page == 1 else f"{JOBS_URL}?page={page}"
-            logger.info(f"[kinderdam] Pagina {page}: {url}")
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent=SCRAPER_HEADERS["User-Agent"],
+                locale="nl-NL",
+            )
 
             try:
-                resp = session.get(url, timeout=20)
-                resp.raise_for_status()
-            except Exception as exc:
-                logger.error(f"[kinderdam] Ophalen mislukt: {exc}")
-                break
+                # Niveau 1: hoofdpagina → regio-links
+                html_main = _render_page(context, JOBS_URL, wait_for_id=BANNER_CONTENT_ID)
+                regio_urls = _get_regio_urls(html_main)
 
-            soup = BeautifulSoup(resp.text, "lxml")
-            cards = soup.select(CARD_SELECTOR)
+                if not regio_urls:
+                    logger.warning("[kinderdam] Geen regio-pagina's gevonden")
+                    return []
 
-            if not cards:
-                logger.info(f"[kinderdam] Geen kaarten op pagina {page}, stop.")
-                break
+                # Niveau 2: elke regio-pagina → vacaturekaarten
+                all_jobs: dict[str, dict] = {}  # source_url → job dict (deduplicatie)
+                for regio_url in regio_urls:
+                    logger.info(f"[kinderdam] Regio: {regio_url}")
+                    try:
+                        html_regio = _render_page(context, regio_url)
+                        cards = _extract_cards_from_regio_page(html_regio)
+                        for job in cards:
+                            if job["source_url"] not in all_jobs:
+                                all_jobs[job["source_url"]] = job
+                    except Exception as exc:
+                        logger.warning(f"[kinderdam] Regio-pagina mislukt {regio_url}: {exc}")
+                    time.sleep(0.5)
 
-            for card in cards:
-                # URL + externe ID
-                link = card.select_one(URL_SEL)
-                if not link:
-                    continue
-                href = link.get("href", "")
-                if not href.startswith("http"):
-                    href = BASE_URL + href
-                external_id = href.rstrip("/").split("/")[-1]
+                jobs = list(all_jobs.values())
+                logger.info(f"[kinderdam] Totaal unieke vacatures: {len(jobs)}")
 
-                # Titel
-                title_el = card.select_one(TITLE_SEL)
-                title = title_el.get_text(strip=True) if title_el else link.get_text(strip=True)
-                if not title:
-                    continue
+                if not jobs:
+                    return []
 
-                # Locatie
-                loc_el = card.select_one(LOCATION_SEL)
-                location_name = loc_el.get_text(strip=True) if loc_el else ""
+                # Niveau 3: detailpagina's → beschrijvingen
+                logger.info(f"[kinderdam] Detail scraping voor {len(jobs)} vacatures...")
+                for job in jobs:
+                    try:
+                        detail_html = _render_page(context, job["source_url"])
+                        job["description"] = _extract_description_from_html(detail_html)
+                        time.sleep(0.5)
+                    except Exception as exc:
+                        logger.warning(f"[kinderdam] Detail mislukt {job['source_url']}: {exc}")
 
-                # Contract
-                contract_el = card.select_one(CONTRACT_SEL)
-                contract_raw = contract_el.get_text(strip=True) if contract_el else ""
-                contract_type = _parse_contract(contract_raw)
-
-                # Uren
-                hours_el = card.select_one(HOURS_SEL)
-                hours_text = hours_el.get_text(strip=True) if hours_el else ""
-                hours_min = hours_max = None
-                m = HOURS_RE.search(hours_text)
-                if m:
-                    hours_min, hours_max = int(m.group(1)), int(m.group(2))
-
-                # Salaris
-                salary_el = card.select_one(SALARY_SEL)
-                salary_text = salary_el.get_text(strip=True) if salary_el else ""
-                salary_min = salary_max = None
-                m = SALARY_RE.search(salary_text)
-                if m:
-                    salary_min = _parse_euros(m.group(1))
-                    salary_max = _parse_euros(m.group(2))
-
-                # Leeftijdsgroep
-                age_el = card.select_one(AGE_SEL)
-                age_text = age_el.get_text(strip=True) if age_el else title
-                age_min = age_max = None
-                m = AGE_RE.search(age_text)
-                if m:
-                    age_min, age_max = int(m.group(1)), int(m.group(2))
-
-                # Korte beschrijving
-                short_el = card.select_one(SHORT_DESC_SEL)
-                short_desc = short_el.get_text(strip=True) if short_el else ""
-
-                jobs.append({
-                    "source_url": href,
-                    "external_id": external_id,
-                    "title": title,
-                    "short_description": short_desc,
-                    "description": "",        # ingevuld via detail scrape
-                    "location_name": location_name,
-                    "salary_min": salary_min,
-                    "salary_max": salary_max,
-                    "hours_min": hours_min,
-                    "hours_max": hours_max,
-                    "age_min": age_min,
-                    "age_max": age_max,
-                    "contract_type": contract_type,
-                    "job_type": "",
-                })
-
-            # Controleer of er een volgende pagina is
-            next_btn = soup.select_one("a[rel='next'], .pagination .next, a.next-page")
-            if not next_btn:
-                break
-            page += 1
-            time.sleep(1)  # beleefd wachten
-
-        # Haal beschrijvingen op via detailpagina's (max 5 gelijktijdig, beleefd)
-        logger.info(f"[kinderdam] Detail scraping voor {len(jobs)} vacatures...")
-        for job in jobs:
-            detail = _scrape_detail(job["source_url"], session)
-            job.update(detail)
-            time.sleep(0.5)
+            finally:
+                context.close()
+                browser.close()
 
         return jobs

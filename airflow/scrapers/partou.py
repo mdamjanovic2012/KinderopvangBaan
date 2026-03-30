@@ -1,54 +1,84 @@
 """
 Partou scraper — werkenbijpartou.nl
 
-Job board: https://www.werkenbijpartou.nl/vacatures
+Partou gebruikt Contentful als headless CMS.
+Vacatures worden opgehaald via de Contentful GraphQL API.
 
-Partou gebruikt een API-achtige JSON endpoint voor vacatures.
-Controleer via browser DevTools (Network tab) of er een /api/vacatures endpoint is.
-Als dat niet beschikbaar is, val terug op HTML scraping.
-
-SELECTOR AANPASSEN: als de site update, controleer de selectors via browser DevTools.
+Geen Playwright nodig: directe HTTP-calls naar de Contentful API.
 """
 
 import logging
 import re
-import time
 
 import requests
-from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper, SCRAPER_HEADERS
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://www.werkenbijpartou.nl"
-JOBS_URL = f"{BASE_URL}/vacatures"
+BASE_URL  = "https://www.werkenbijpartou.nl"
+JOBS_URL  = f"{BASE_URL}/vacatures"
 
-# Probeer eerst een JSON API (veel moderne job boards hebben dit)
-JSON_API_URL = f"{BASE_URL}/api/vacancies"  # aanpassen als anders
+CONTENTFUL_ENDPOINT = (
+    "https://graphql.contentful.com/content/v1/spaces/xbegxinjalez"
+    "/environments/release-v2-2023"
+)
+CONTENTFUL_TOKEN = "uX1ZnOM4d0UTKo8pOhhELfrbBvyuPDbRcY0rdXvPDCE"
 
-# ── CSS-selectors (aanpassen als de site wijzigt) ─────────────────────────────
-CARD_SELECTOR  = "article.job, div.job-card, li.vacancy, .vacancy-item"
-TITLE_SEL      = "h2, h3, .job-title, .vacancy-title"
-URL_SEL        = "a[href]"
-LOCATION_SEL   = ".location, [class*='location'], [class*='vestiging']"
-CONTRACT_SEL   = ".contract, [class*='contract'], [class*='dienstverband']"
-HOURS_SEL      = ".hours, [class*='hours'], [class*='uren']"
-SALARY_SEL     = ".salary, [class*='salary'], [class*='salaris']"
-AGE_SEL        = "[class*='age'], [class*='leeftijd'], [class*='groep']"
-SHORT_DESC_SEL = ".excerpt, .intro, p.summary"
-# ─────────────────────────────────────────────────────────────────────────────
+CONTENTFUL_QUERY = """
+{
+  vacancyCollection(limit: 1000, skip: 0) {
+    total
+    items {
+      sys { id }
+      roleTitle
+      role
+      city
+      slug
+      minHours
+      maxHours
+      minSalary
+      maxSalary
+      numberOfHours
+      childcareType
+      aboutJob
+      headerText
+      link
+      vacancyId
+    }
+  }
+}
+"""
 
-HOURS_RE   = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
-SALARY_RE  = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
-AGE_RE     = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*jaar", re.I)
+SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+HOURS_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
 
 CONTRACT_MAP = {
-    "fulltime": "fulltime",
+    "fulltime":  "fulltime",
     "full-time": "fulltime",
-    "parttime": "parttime",
+    "parttime":  "parttime",
     "part-time": "parttime",
     "tijdelijk": "temp",
+}
+
+# Contentful role → interne job_type
+ROLE_MAP = {
+    "pedagogical":   "",          # verfijnd via childcareType hieronder
+    "locationManager": "locatiemanager",
+    "groupsHelp":    "groepshulp",
+    "internship":    "stage",
+    "facility":      "facilitair",
+    "it":            "",
+    "finance":       "",
+    "hr":            "",
+}
+
+CHILDCARE_JOB_MAP = {
+    "kdv":                "pm3",
+    "bso":                "bso_begeleider",
+    "combi kdv / bso":    "pm3",
+    "pov":                "pm_pov",
+    "combi pov / bso":    "pm_pov",
 }
 
 
@@ -66,27 +96,18 @@ def _parse_contract(raw: str) -> str:
     return ""
 
 
-def _try_json_api(session: requests.Session) -> list[dict] | None:
-    """
-    Probeer een JSON API endpoint. Veel moderne job boards bieden dit aan.
-    Geeft lijst van job dicts terug, of None als het niet werkt.
-    """
-    try:
-        resp = session.get(JSON_API_URL, timeout=10)
-        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("application/json"):
-            data = resp.json()
-            # Pas aan op de JSON structuur van Partou
-            items = data if isinstance(data, list) else data.get("vacancies", data.get("results", []))
-            if items:
-                logger.info(f"[partou] JSON API beschikbaar: {len(items)} items")
-                return _parse_json_items(items)
-    except Exception:
-        pass
-    return None
+def _job_type_from_role(role: str, childcare_type: str) -> str:
+    if role == "pedagogical":
+        return CHILDCARE_JOB_MAP.get((childcare_type or "").lower(), "")
+    return ROLE_MAP.get(role, "")
 
 
 def _parse_json_items(items: list) -> list[dict]:
-    """Pas aan op de JSON structuur van Partou's API."""
+    """
+    Parseer ruwe JSON items (voor unit tests en als fallback).
+    Verwacht velden: id, title, url/link/applyUrl, location, hours, salary,
+    summary, description, contractType.
+    """
     jobs = []
     for item in items:
         url = item.get("url") or item.get("link") or item.get("applyUrl", "")
@@ -95,8 +116,8 @@ def _parse_json_items(items: list) -> list[dict]:
         if not url:
             continue
 
-        title = item.get("title") or item.get("name", "")
-        location = item.get("location") or item.get("city") or item.get("vestiging", "")
+        title     = item.get("title") or item.get("name", "")
+        location  = item.get("location") or item.get("city") or item.get("vestiging", "")
         hours_text = str(item.get("hours") or item.get("uren", ""))
         salary_text = str(item.get("salary") or item.get("salaris", ""))
 
@@ -112,128 +133,118 @@ def _parse_json_items(items: list) -> list[dict]:
             salary_max = _parse_euros(m.group(2))
 
         jobs.append({
-            "source_url": url,
-            "external_id": str(item.get("id", "")),
-            "title": title,
+            "source_url":       url,
+            "external_id":      str(item.get("id", "")),
+            "title":            title,
             "short_description": item.get("summary") or item.get("intro", ""),
-            "description": item.get("description", ""),
-            "location_name": location,
-            "hours_min": hours_min,
-            "hours_max": hours_max,
-            "salary_min": salary_min,
-            "salary_max": salary_max,
-            "age_min": None,
-            "age_max": None,
-            "contract_type": _parse_contract(str(item.get("contractType", ""))),
-            "job_type": "",
+            "description":      item.get("description", ""),
+            "location_name":    location,
+            "hours_min":        hours_min,
+            "hours_max":        hours_max,
+            "salary_min":       salary_min,
+            "salary_max":       salary_max,
+            "age_min":          None,
+            "age_max":          None,
+            "contract_type":    _parse_contract(str(item.get("contractType", ""))),
+            "job_type":         "",
         })
     return jobs
 
 
-def _scrape_html(session: requests.Session) -> list[dict]:
-    """HTML scraping als fallback."""
+def _parse_contentful_items(items: list) -> list[dict]:
+    """Parseer Contentful GraphQL response items naar job dicts."""
     jobs = []
-    page = 1
+    for item in items:
+        slug  = item.get("slug") or ""
+        link  = item.get("link") or ""
+        title = item.get("roleTitle") or ""
+        if not title:
+            continue
 
-    while True:
-        url = JOBS_URL if page == 1 else f"{JOBS_URL}?page={page}"
-        logger.info(f"[partou] Pagina {page}: {url}")
+        if link and link.startswith("http"):
+            source_url = link
+        elif slug:
+            source_url = f"{JOBS_URL}/{slug}"
+        else:
+            continue
 
-        try:
-            resp = session.get(url, timeout=20)
-            resp.raise_for_status()
-        except Exception as exc:
-            logger.error(f"[partou] Ophalen mislukt: {exc}")
-            break
+        hours_min = item.get("minHours") or None
+        hours_max = item.get("maxHours") or None
+        # 0 betekent onbekend in de API
+        if hours_min == 0:
+            hours_min = None
+        if hours_max == 0:
+            hours_max = None
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        cards = soup.select(CARD_SELECTOR)
+        salary_min = item.get("minSalary") or None
+        salary_max = item.get("maxSalary") or None
 
-        if not cards:
-            break
+        role         = item.get("role") or ""
+        childcare    = item.get("childcareType") or ""
+        job_type     = _job_type_from_role(role, childcare)
+        external_id  = str(item.get("vacancyId") or item.get("sys", {}).get("id", ""))
+        description  = item.get("aboutJob") or ""
+        short_desc   = item.get("headerText") or ""
 
-        for card in cards:
-            link = card.select_one(URL_SEL)
-            if not link:
-                continue
-            href = link.get("href", "")
-            if not href.startswith("http"):
-                href = BASE_URL + href
-
-            title_el = card.select_one(TITLE_SEL)
-            title = title_el.get_text(strip=True) if title_el else link.get_text(strip=True)
-            if not title:
-                continue
-
-            loc_el = card.select_one(LOCATION_SEL)
-            location_name = loc_el.get_text(strip=True) if loc_el else ""
-
-            hours_el = card.select_one(HOURS_SEL)
-            hours_text = hours_el.get_text(strip=True) if hours_el else ""
-            hours_min = hours_max = None
-            m = HOURS_RE.search(hours_text)
-            if m:
-                hours_min, hours_max = int(m.group(1)), int(m.group(2))
-
-            salary_el = card.select_one(SALARY_SEL)
-            salary_text = salary_el.get_text(strip=True) if salary_el else ""
-            salary_min = salary_max = None
-            m = SALARY_RE.search(salary_text)
-            if m:
-                salary_min = _parse_euros(m.group(1))
-                salary_max = _parse_euros(m.group(2))
-
-            age_el = card.select_one(AGE_SEL)
-            age_text = age_el.get_text(strip=True) if age_el else title
-            age_min = age_max = None
-            m = AGE_RE.search(age_text)
-            if m:
-                age_min, age_max = int(m.group(1)), int(m.group(2))
-
-            contract_el = card.select_one(CONTRACT_SEL)
-            contract_raw = contract_el.get_text(strip=True) if contract_el else ""
-
-            short_el = card.select_one(SHORT_DESC_SEL)
-            short_desc = short_el.get_text(strip=True) if short_el else ""
-
-            jobs.append({
-                "source_url": href,
-                "external_id": href.rstrip("/").split("/")[-1],
-                "title": title,
-                "short_description": short_desc,
-                "description": "",
-                "location_name": location_name,
-                "salary_min": salary_min,
-                "salary_max": salary_max,
-                "hours_min": hours_min,
-                "hours_max": hours_max,
-                "age_min": age_min,
-                "age_max": age_max,
-                "contract_type": _parse_contract(contract_raw),
-                "job_type": "",
-            })
-
-        next_btn = soup.select_one("a[rel='next'], .pagination .next, a.next-page")
-        if not next_btn:
-            break
-        page += 1
-        time.sleep(1)
-
+        jobs.append({
+            "source_url":        source_url,
+            "external_id":       external_id,
+            "title":             title,
+            "short_description": short_desc[:500] if short_desc else "",
+            "description":       description,
+            "location_name":     item.get("city") or "",
+            "hours_min":         hours_min,
+            "hours_max":         hours_max,
+            "salary_min":        float(salary_min) if salary_min else None,
+            "salary_max":        float(salary_max) if salary_max else None,
+            "age_min":           None,
+            "age_max":           None,
+            "contract_type":     "",
+            "job_type":          job_type,
+        })
     return jobs
+
+
+def _fetch_contentful() -> list[dict]:
+    """Haal alle vacatures op via Contentful GraphQL API."""
+    headers = {
+        "Authorization": f"Bearer {CONTENTFUL_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(
+        CONTENTFUL_ENDPOINT,
+        json={"query": CONTENTFUL_QUERY},
+        headers=headers,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    errors = data.get("errors")
+    if errors:
+        raise ValueError(f"Contentful API fout: {errors}")
+
+    collection = data["data"]["vacancyCollection"]
+    items = collection["items"]
+    total = collection["total"]
+    logger.info(f"[partou] Contentful: {len(items)} van {total} vacatures opgehaald")
+
+    return _parse_contentful_items(items)
 
 
 class PartouScraper(BaseScraper):
     company_slug = "partou"
 
     def fetch_company(self) -> dict:
-        """Scrapet bedrijfsinfo van de Partou homepage."""
         partou_home = "https://www.partou.nl"
+        logo_url = ""
+        description = ""
         try:
+            from bs4 import BeautifulSoup
             resp = requests.get(partou_home, headers=SCRAPER_HEADERS, timeout=15)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
 
-            logo_url = ""
             for sel in ["header img[src]", ".logo img[src]", "img.logo[src]", "img[alt*='partou' i][src]"]:
                 el = soup.select_one(sel)
                 if el:
@@ -241,33 +252,21 @@ class PartouScraper(BaseScraper):
                     logo_url = src if src.startswith("http") else partou_home + src
                     break
 
-            description = ""
             meta = soup.select_one("meta[name='description']")
             if meta:
                 description = meta.get("content", "")
 
         except Exception as exc:
             logger.warning(f"[partou] Bedrijfsinfo ophalen mislukt: {exc}")
-            logo_url = ""
-            description = ""
 
         return {
-            "name": "Partou",
-            "website": partou_home,
+            "name":          "Partou",
+            "website":       partou_home,
             "job_board_url": JOBS_URL,
             "scraper_class": "PartouScraper",
-            "logo_url": logo_url,
-            "description": description,
+            "logo_url":      logo_url,
+            "description":   description,
         }
 
     def fetch_jobs(self) -> list[dict]:
-        session = requests.Session()
-        session.headers.update(SCRAPER_HEADERS)
-
-        # Probeer eerst JSON API, anders HTML
-        jobs = _try_json_api(session)
-        if jobs is None:
-            logger.info("[partou] JSON API niet beschikbaar, gebruik HTML scraping")
-            jobs = _scrape_html(session)
-
-        return jobs
+        return _fetch_contentful()
