@@ -75,6 +75,7 @@ function JobPopup({ job, onClose }) {
 export default function JobMap({ jobs = [], center }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [viewState, setViewState] = useState({ longitude: 5.2913, latitude: 52.1326, zoom: 7 });
+  const mapRef = useRef(null);
 
   useEffect(() => {
     if (center?.lat && center?.lng) {
@@ -109,6 +110,7 @@ export default function JobMap({ jobs = [], center }) {
 
   return (
     <Map
+      ref={mapRef}
       {...viewState}
       onMove={(e) => setViewState(e.viewState)}
       style={{ width: "100%", height: "100%" }}
@@ -126,8 +128,14 @@ export default function JobMap({ jobs = [], center }) {
               count={feature.properties.point_count}
               lng={lng} lat={lat}
               onClick={() => {
-                const zoom = supercluster.getClusterExpansionZoom(feature.id);
-                setViewState((v) => ({ ...v, longitude: lng, latitude: lat, zoom }));
+                const leaves = supercluster.getLeaves(feature.id, Infinity);
+                const lngs = leaves.map((l) => l.geometry.coordinates[0]);
+                const lats = leaves.map((l) => l.geometry.coordinates[1]);
+                const padding = 80;
+                mapRef.current?.fitBounds?.(
+                  [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+                  { padding, maxZoom: 14, duration: 500 }
+                );
               }}
             />
           );

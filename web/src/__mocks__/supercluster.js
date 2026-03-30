@@ -27,6 +27,8 @@ class Supercluster {
   }
 
   getClusterExpansionZoom() { return 10; }
+
+  getLeaves() { return this._points; }
 }
 
 module.exports = Supercluster;
