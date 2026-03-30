@@ -1,3 +1,4 @@
+
 ################################################################################
 # Pipeline: Airflow deploy naar Azure Container Instance
 #
@@ -87,6 +88,9 @@ jobs:
               --memory 2 \
               --os-type Linux \
               --restart-policy Always \
+              --ip-address Public \
+              --ports 8080 \
+              --dns-name-label $(ACI_CONTAINER_NAME) \
               --environment-variables \
                 AIRFLOW__CORE__EXECUTOR=LocalExecutor \
                 AIRFLOW__CORE__LOAD_EXAMPLES=False \
@@ -96,6 +100,11 @@ jobs:
                 AIRFLOW__WEBSERVER__SECRET_KEY="$(AIRFLOW_SECRET_KEY)" \
                 DATABASE_URL="$(DATABASE_URL)"
 
+            FQDN=$(az container show \
+              --name $(ACI_CONTAINER_NAME) \
+              --resource-group $(ACI_RESOURCE_GROUP) \
+              --query "ipAddress.fqdn" -o tsv)
+            echo "Airflow webserver: http://$FQDN:8080"
             echo "ACI gestart: $(ACI_CONTAINER_NAME)"
 
       - task: AzureCLI@2

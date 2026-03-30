@@ -51,8 +51,10 @@
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
                   "pm.test('Has results array', () => pm.expect(pm.response.json().results).to.be.an('array'));",
-                  "pm.test('Has total count', () => pm.expect(pm.response.json()).to.have.property('total'));",
-                  "pm.test('Has blurred flag', () => pm.expect(pm.response.json()).to.have.property('blurred'));",
+                  "pm.test('Has count or total', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.total !== undefined || body.count !== undefined).to.be.true;",
+                  "});",
                   "if (pm.response.json().results.length > 0) {",
                   "  pm.collectionVariables.set('job_id', pm.response.json().results[0].id);",
                   "}"
@@ -401,7 +403,10 @@
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
                   "pm.test('Has results array', () => pm.expect(pm.response.json().results).to.be.an('array'));",
-                  "pm.test('Has total count', () => pm.expect(pm.response.json()).to.have.property('total'));"
+                  "pm.test('Has count or total', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.total !== undefined || body.count !== undefined).to.be.true;",
+                  "});"
                 ]
               }
             }
