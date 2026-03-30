@@ -85,7 +85,7 @@ jobs:
               --registry-username $(ACR_NAME) \
               --registry-password "$ACR_PASSWORD" \
               --cpu 4 \
-              --memory 8 \
+              --memory 16 \
               --os-type Linux \
               --restart-policy Always \
               --ip-address Public \
