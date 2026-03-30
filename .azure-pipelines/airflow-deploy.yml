@@ -106,6 +106,7 @@ jobs:
               --query "ipAddress.fqdn" -o tsv)
             echo "Airflow webserver: http://$FQDN:8080"
             echo "ACI gestart: $(ACI_CONTAINER_NAME)"
+            echo "##vso[task.setvariable variable=AIRFLOW_FQDN;isOutput=true]http://$FQDN:8080"
 
       - task: AzureCLI@2
         displayName: "Verifieer: container draait"
