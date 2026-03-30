@@ -15,7 +15,7 @@ const CONTRACT_LABELS = {
 };
 
 export default function JobDetailPage({ params }) {
-  const { id } = use(params);
+  const { id } = typeof params?.then === "function" ? use(params) : params;
   const { user } = useAuth();
   const router = useRouter();
   const [job, setJob] = useState(null);

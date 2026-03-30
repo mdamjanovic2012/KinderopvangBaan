@@ -54,7 +54,7 @@ function StarRating({ rating }) {
 }
 
 export default function InstitutionDetailPage({ params }) {
-  const { id } = use(params);
+  const { id } = typeof params?.then === "function" ? use(params) : params;
   const [institution, setInstitution] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [jobs, setJobs] = useState([]);
