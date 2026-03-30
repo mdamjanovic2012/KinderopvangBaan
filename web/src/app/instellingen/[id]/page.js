@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
@@ -54,7 +54,7 @@ function StarRating({ rating }) {
 }
 
 export default function InstitutionDetailPage({ params }) {
-  const { id } = params;
+  const { id } = use(params);
   const [institution, setInstitution] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [jobs, setJobs] = useState([]);

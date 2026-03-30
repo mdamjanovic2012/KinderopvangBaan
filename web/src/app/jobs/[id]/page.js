@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -15,7 +15,7 @@ const CONTRACT_LABELS = {
 };
 
 export default function JobDetailPage({ params }) {
-  const { id } = params;
+  const { id } = use(params);
   const { user } = useAuth();
   const router = useRouter();
   const [job, setJob] = useState(null);
