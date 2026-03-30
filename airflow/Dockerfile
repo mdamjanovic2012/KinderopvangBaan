@@ -26,3 +26,5 @@ COPY db/         /opt/airflow/db/
 ENV PYTHONPATH="/opt/airflow"
 
 EXPOSE 8080
+
+CMD ["standalone"]
