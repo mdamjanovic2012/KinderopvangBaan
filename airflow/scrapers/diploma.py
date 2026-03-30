@@ -191,8 +191,9 @@ def run_diploma_update(force: bool = False) -> dict:
                         """
                         INSERT INTO diplomacheck_diploma
                             (name, level, kdv_status, bso_status, notes, crebo,
-                             qualifying_roles, qualifying_institution_types, is_active)
-                        VALUES (%s, %s, %s, %s, %s, '', '[]', '[]', TRUE)
+                             qualifying_roles, qualifying_institution_types,
+                             is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, '', '[]', '[]', TRUE, NOW(), NOW())
                         """,
                         (e["name"], e["level"], e["kdv_status"], e["bso_status"], e["notes"]),
                     )
