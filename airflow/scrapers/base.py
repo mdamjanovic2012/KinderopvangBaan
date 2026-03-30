@@ -256,6 +256,15 @@ class BaseScraper:
                     )
                     logger.info(f"[{self.company_slug}] Verlopen: {len(expired_urls)}")
 
+                # Dedupliceer op source_url (laatste wint)
+                seen: dict[str, dict] = {}
+                for job in jobs:
+                    url = job.get("source_url", "").strip()
+                    if url:
+                        seen[url] = job
+                jobs = list(seen.values())
+                logger.info(f"[{self.company_slug}] Na deduplicatie: {len(jobs)} unieke vacatures")
+
                 # Upsert jobs
                 inserted = updated = 0
                 now = datetime.now(timezone.utc)
