@@ -98,7 +98,9 @@ jobs:
               --secure-environment-variables \
                 AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="$AIRFLOW_DB_URL" \
                 AIRFLOW__WEBSERVER__SECRET_KEY="$(AIRFLOW_SECRET_KEY)" \
-                DATABASE_URL="$(DATABASE_URL)"
+                DATABASE_URL="$(DATABASE_URL)" \
+                _AIRFLOW_WWW_USER_USERNAME="$(AIRFLOW_ADMIN_USER)" \
+                _AIRFLOW_WWW_USER_PASSWORD="$(AIRFLOW_ADMIN_PASSWORD)"
 
             FQDN=$(az container show \
               --name $(ACI_CONTAINER_NAME) \

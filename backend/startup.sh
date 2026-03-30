@@ -22,7 +22,6 @@ python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
 # Achtergrondtaken — ingebouwde throttling, blokkeren gunicorn niet
-(python manage.py enrich_from_lrk || true) &    # max 1x per 30 dagen
 (python manage.py backup_db || true) &            # max 1x per 7 dagen
 # update_diplomas wordt beheerd door Airflow (diploma_dag)
 
