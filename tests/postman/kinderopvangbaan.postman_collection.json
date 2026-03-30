@@ -396,6 +396,16 @@
                   "});"
                 ]
               }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const jobId = pm.collectionVariables.get('job_id');",
+                  "if (!jobId) { pm.execution.skipRequest(); }"
+                ]
+              }
             }
           ]
         },
