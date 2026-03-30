@@ -3,11 +3,8 @@ Tests for django-unfold admin dashboard (/pivce-za-zivce/).
 """
 import pytest
 from django.contrib.admin.sites import AdminSite
-from django.contrib.gis.geos import Point
 from django.test import RequestFactory
 
-from institutions.admin import InstitutionAdmin, ReviewAdmin
-from institutions.models import Institution, Review
 from jobs.admin import JobAdmin
 from jobs.models import Company, Job
 from users.admin import CustomUserAdmin, WorkerProfileAdmin
@@ -19,19 +16,6 @@ def make_superuser():
         username="admin_test",
         email="admin@test.com",
         password="testpass123",
-    )
-
-
-def make_institution(name="Test BSO", lrk="LRK-TEST"):
-    return Institution.objects.create(
-        name=name,
-        institution_type="bso",
-        street="Teststraat",
-        house_number="1",
-        postcode="1000AA",
-        city="Amsterdam",
-        location=Point(4.9, 52.3, srid=4326),
-        lrk_number=lrk,
     )
 
 
@@ -78,77 +62,6 @@ class TestAdminUrl:
     def test_anonymous_redirected(self, client):
         response = client.get("/pivce-za-zivce/")
         assert response.status_code == 302
-
-
-# ---------------------------------------------------------------------------
-# InstitutionAdmin
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestInstitutionAdmin:
-    def setup_method(self):
-        self.site = AdminSite()
-        self.admin = InstitutionAdmin(Institution, self.site)
-        self.factory = RequestFactory()
-        self.superuser = make_superuser()
-
-    def _get_request(self):
-        request = self.factory.get("/")
-        request.user = self.superuser
-        return request
-
-    def test_list_display_fields(self):
-        assert "name" in self.admin.list_display
-        assert "lrk_verified" in self.admin.list_display
-        assert "is_claimed" in self.admin.list_display
-        assert "job_count" in self.admin.list_display
-
-    def test_job_count_annotation(self):
-        inst = make_institution()
-        qs = self.admin.get_queryset(self._get_request())
-        obj = qs.get(pk=inst.pk)
-        # Jobs zijn nu aan Company gekoppeld, job_count geeft "—" terug
-        assert self.admin.job_count(obj) == "—"
-
-    def test_avg_rating_display_no_reviews(self):
-        inst = make_institution(lrk="LRK-NOREV")
-        qs = self.admin.get_queryset(self._get_request())
-        obj = qs.get(pk=inst.pk)
-        assert self.admin.avg_rating_display(obj) == "—"
-
-    def test_mark_verified_action(self):
-        inst = make_institution(lrk="LRK-VER")
-        inst.lrk_verified = False
-        inst.save()
-        qs = Institution.objects.filter(pk=inst.pk)
-        self.admin.mark_verified(None, qs)
-        inst.refresh_from_db()
-        assert inst.lrk_verified is True
-
-    def test_mark_unverified_action(self):
-        inst = make_institution(lrk="LRK-UNVER")
-        inst.lrk_verified = True
-        inst.save()
-        qs = Institution.objects.filter(pk=inst.pk)
-        self.admin.mark_unverified(None, qs)
-        inst.refresh_from_db()
-        assert inst.lrk_verified is False
-
-    def test_mark_inactive_action(self):
-        inst = make_institution(lrk="LRK-INACT")
-        qs = Institution.objects.filter(pk=inst.pk)
-        self.admin.mark_inactive(None, qs)
-        inst.refresh_from_db()
-        assert inst.is_active is False
-
-    def test_mark_active_action(self):
-        inst = make_institution(lrk="LRK-ACT")
-        inst.is_active = False
-        inst.save()
-        qs = Institution.objects.filter(pk=inst.pk)
-        self.admin.mark_active(None, qs)
-        inst.refresh_from_db()
-        assert inst.is_active is True
 
 
 # ---------------------------------------------------------------------------

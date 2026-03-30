@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from institutions.management.commands.backup_db import Command as BackupCommand
+from jobs.management.commands.backup_db import Command as BackupCommand
 
 
 def _make_cmd():
@@ -32,33 +32,33 @@ class TestTimestamp:
         ts_file = tmp_path / ".backup_last_run"
         ts_file.write_text(datetime.now().isoformat())
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             assert cmd._should_skip() is True
 
     def test_should_not_skip_when_old(self, tmp_path):
         ts_file = tmp_path / ".backup_last_run"
         ts_file.write_text((datetime.now() - timedelta(days=8)).isoformat())
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             assert cmd._should_skip() is False
 
     def test_should_not_skip_when_no_file(self, tmp_path):
         ts_file = tmp_path / ".backup_last_run"
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             assert cmd._should_skip() is False
 
     def test_should_not_skip_with_corrupt_file(self, tmp_path):
         ts_file = tmp_path / ".backup_last_run"
         ts_file.write_text("not-a-date")
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             assert cmd._should_skip() is False
 
     def test_write_timestamp_creates_file(self, tmp_path):
         ts_file = tmp_path / ".backup_last_run"
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             cmd._write_timestamp()
         assert ts_file.exists()
         dt = datetime.fromisoformat(ts_file.read_text().strip())
@@ -74,7 +74,7 @@ class TestHandleSkipAndDryRun:
         ts_file = tmp_path / ".backup_last_run"
         ts_file.write_text(datetime.now().isoformat())
         cmd = _make_cmd()
-        with patch("institutions.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
+        with patch("jobs.management.commands.backup_db._DEFAULT_TIMESTAMP_FILE", ts_file):
             cmd.handle(dry_run=False, force=False)
         cmd.stdout.write.assert_called_once()
         assert "Overgeslagen" in cmd.stdout.write.call_args[0][0]
@@ -98,7 +98,7 @@ class TestHandleSkipAndDryRun:
         cmd = _make_cmd()
         with patch.object(cmd, "_should_skip", return_value=True), \
              patch.dict(os.environ, {"AZURE_STORAGE_CONNECTION_STRING": "fake"}, clear=False), \
-             patch("institutions.management.commands.backup_db.call_command"), \
+             patch("jobs.management.commands.backup_db.call_command"), \
              patch.object(cmd, "_upload_blob") as mock_upload, \
              patch.object(cmd, "_prune_old_backups"), \
              patch.object(cmd, "_write_timestamp"):
@@ -109,7 +109,7 @@ class TestHandleSkipAndDryRun:
         cmd = _make_cmd()
         with patch.object(cmd, "_should_skip", return_value=False), \
              patch.dict(os.environ, {"AZURE_STORAGE_CONNECTION_STRING": "fake"}, clear=False), \
-             patch("institutions.management.commands.backup_db.call_command") as mock_dump, \
+             patch("jobs.management.commands.backup_db.call_command") as mock_dump, \
              patch.object(cmd, "_upload_blob") as mock_upload, \
              patch.object(cmd, "_prune_old_backups"), \
              patch.object(cmd, "_write_timestamp"):

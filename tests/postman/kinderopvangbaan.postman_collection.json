@@ -5,45 +5,47 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "{{BASE_URL}}", "type": "string" },
-    { "key": "access_token", "value": "", "type": "string" },
-    { "key": "refresh_token", "value": "", "type": "string" },
-    { "key": "institution_id", "value": "", "type": "string" },
-    { "key": "job_id", "value": "", "type": "string" },
-    { "key": "worker_username", "value": "", "type": "string" }
+    {
+      "key": "base_url",
+      "value": "{{BASE_URL}}",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "institution_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "worker_username",
+      "value": "",
+      "type": "string"
+    }
   ],
   "item": [
     {
       "name": "Health",
       "item": [
         {
-          "name": "Institutions list is accessible",
+          "name": "Jobs list is accessible",
           "request": {
             "method": "GET",
-            "url": "{{base_url}}/institutions/"
+            "url": "{{base_url}}/jobs/"
           },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Returns paginated result', () => {",
-                  "  const body = pm.response.json();",
-                  "  pm.expect(body).to.have.property('results');",
-                  "  pm.expect(body.results).to.be.an('array');",
-                  "});",
-                  "if (pm.response.json().results.length > 0) {",
-                  "  pm.collectionVariables.set('institution_id', pm.response.json().results[0].id);",
-                  "}"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Jobs list is accessible",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/" },
           "event": [
             {
               "listen": "test",
@@ -65,14 +67,20 @@
         },
         {
           "name": "Companies list is accessible",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/companies/" },
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/"
+          },
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Returns array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
                 ]
               }
             }
@@ -81,14 +89,19 @@
       ]
     },
     {
-      "name": "Auth — Register",
+      "name": "Auth \u2014 Register",
       "item": [
         {
           "name": "Register worker",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/register/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\"username\": \"newman_w_{{$randomInt}}\", \"email\": \"w_{{$randomInt}}@test.nl\", \"password\": \"testpass123\", \"role\": \"worker\"}"
@@ -113,32 +126,52 @@
           ]
         },
         {
-          "name": "Register — short password rejected",
+          "name": "Register \u2014 short password rejected",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/register/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"username\": \"badpw_{{$randomInt}}\", \"password\": \"abc\", \"role\": \"worker\"}" }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"badpw_{{$randomInt}}\", \"password\": \"abc\", \"role\": \"worker\"}"
+            }
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
             }
           ]
         }
       ]
     },
     {
-      "name": "Auth — Token",
+      "name": "Auth \u2014 Token",
       "item": [
         {
           "name": "Obtain JWT token",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/token/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"username\": \"{{worker_username}}\", \"password\": \"testpass123\"}" }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{worker_username}}\", \"password\": \"testpass123\"}"
+            }
           },
           "event": [
             {
@@ -163,13 +196,25 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/token/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"username\": \"{{worker_username}}\", \"password\": \"wrongpassword\"}" }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{worker_username}}\", \"password\": \"wrongpassword\"}"
+            }
           },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"] }
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
             }
           ]
         },
@@ -178,8 +223,16 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/auth/token/refresh/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"refresh\": \"{{refresh_token}}\"}" }
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refresh\": \"{{refresh_token}}\"}"
+            }
           },
           "event": [
             {
@@ -197,14 +250,19 @@
       ]
     },
     {
-      "name": "Auth — Me & Profile",
+      "name": "Auth \u2014 Me & Profile",
       "item": [
         {
-          "name": "GET /me/ — authenticated",
+          "name": "GET /me/ \u2014 authenticated",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/auth/me/",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ]
           },
           "event": [
             {
@@ -221,12 +279,19 @@
           ]
         },
         {
-          "name": "GET /me/ — unauthenticated returns 401",
-          "request": { "method": "GET", "url": "{{base_url}}/auth/me/" },
+          "name": "GET /me/ \u2014 unauthenticated returns 401",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/auth/me/"
+          },
           "event": [
             {
               "listen": "test",
-              "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"] }
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
             }
           ]
         },
@@ -235,7 +300,12 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/auth/worker-profile/",
-            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }]
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ]
           },
           "event": [
             {
@@ -255,10 +325,19 @@
             "method": "PATCH",
             "url": "{{base_url}}/auth/worker-profile/",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
-            "body": { "mode": "raw", "raw": "{\"bio\": \"Newman test bio\", \"work_radius_km\": 20, \"has_vog\": true}" }
+            "body": {
+              "mode": "raw",
+              "raw": "{\"bio\": \"Newman test bio\", \"work_radius_km\": 20, \"has_vog\": true}"
+            }
           },
           "event": [
             {
@@ -276,90 +355,14 @@
       ]
     },
     {
-      "name": "Institutions",
-      "item": [
-        {
-          "name": "Filter by institution_type=bso",
-          "request": { "method": "GET", "url": "{{base_url}}/institutions/?institution_type=bso" },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('All results are BSO', () => {",
-                  "  pm.response.json().results.forEach(i => pm.expect(i.institution_type).to.eql('bso'));",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get institution detail",
-          "request": { "method": "GET", "url": "{{base_url}}/institutions/{{institution_id}}/" },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Has required fields', () => {",
-                  "  ['id','name','institution_type','city','location'].forEach(f => {",
-                  "    pm.expect(pm.response.json()).to.have.property(f);",
-                  "  });",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Nearby — Amsterdam 50km",
-          "request": { "method": "GET", "url": "{{base_url}}/institutions/nearby/?lat=52.3676&lng=4.9041&radius=50" },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "pm.test('Returns array', () => pm.expect(pm.response.json()).to.be.an('array'));",
-                  "pm.test('Items have distance_km', () => {",
-                  "  pm.response.json().forEach(i => pm.expect(i).to.have.property('distance_km'));",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Nearby — missing lat returns 400",
-          "request": { "method": "GET", "url": "{{base_url}}/institutions/nearby/?lng=4.9041" },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
-            }
-          ]
-        },
-        {
-          "name": "Reviews for institution",
-          "request": { "method": "GET", "url": "{{base_url}}/institutions/{{institution_id}}/reviews/" },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"] }
-            }
-          ]
-        }
-      ]
-    },
-    {
       "name": "Jobs",
       "item": [
         {
           "name": "Filter by contract_type=fulltime",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/?contract_type=fulltime" },
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/?contract_type=fulltime"
+          },
           "event": [
             {
               "listen": "test",
@@ -376,7 +379,10 @@
         },
         {
           "name": "Get job detail",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/{{job_id}}/" },
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/{{job_id}}/"
+          },
           "event": [
             {
               "listen": "test",
@@ -394,8 +400,11 @@
           ]
         },
         {
-          "name": "Nearby jobs — Amsterdam 100km",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/nearby/?lat=52.3676&lng=4.9041&radius=100" },
+          "name": "Nearby jobs \u2014 Amsterdam 100km",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/nearby/?lat=52.3676&lng=4.9041&radius=100"
+          },
           "event": [
             {
               "listen": "test",
@@ -413,46 +422,32 @@
           ]
         },
         {
-          "name": "Nearby jobs — missing lat returns 400",
-          "request": { "method": "GET", "url": "{{base_url}}/jobs/nearby/?lng=4.9041" },
-          "event": [
-            {
-              "listen": "test",
-              "script": { "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"] }
-            }
-          ]
-        },
-        {
-          "name": "Click job — anoniem registreert klik",
+          "name": "Nearby jobs \u2014 missing lat returns 400",
           "request": {
-            "method": "POST",
-            "url": "{{base_url}}/jobs/{{job_id}}/click/",
-            "header": [{ "key": "Content-Type", "value": "application/json" }]
+            "method": "GET",
+            "url": "{{base_url}}/jobs/nearby/?lng=4.9041"
           },
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.collectionVariables.get('job_id')) {",
-                  "  pm.test('Status 200', () => pm.response.to.have.status(200));",
-                  "  pm.test('Returns source_url', () => pm.expect(pm.response.json()).to.have.property('source_url'));",
-                  "} else {",
-                  "  pm.test('Geen job_id beschikbaar — skip', () => true);",
-                  "}"
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Click job — authenticated registreert klik",
+          "name": "Click job \u2014 anoniem registreert klik",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/jobs/{{job_id}}/click/",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" },
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ]
           },
           "event": [
@@ -464,7 +459,39 @@
                   "  pm.test('Status 200', () => pm.response.to.have.status(200));",
                   "  pm.test('Returns source_url', () => pm.expect(pm.response.json()).to.have.property('source_url'));",
                   "} else {",
-                  "  pm.test('Geen job_id beschikbaar — skip', () => true);",
+                  "  pm.test('Geen job_id beschikbaar \u2014 skip', () => true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Click job \u2014 authenticated registreert klik",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/jobs/{{job_id}}/click/",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('job_id')) {",
+                  "  pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "  pm.test('Returns source_url', () => pm.expect(pm.response.json()).to.have.property('source_url'));",
+                  "} else {",
+                  "  pm.test('Geen job_id beschikbaar \u2014 skip', () => true);",
                   "}"
                 ]
               }
@@ -478,7 +505,10 @@
       "item": [
         {
           "name": "Public workers list",
-          "request": { "method": "GET", "url": "{{base_url}}/users/workers/" },
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/users/workers/"
+          },
           "event": [
             {
               "listen": "test",
@@ -493,7 +523,10 @@
         },
         {
           "name": "Nearby workers",
-          "request": { "method": "GET", "url": "{{base_url}}/users/workers/?lat=52.3676&lng=4.9041&radius=50" },
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/users/workers/?lat=52.3676&lng=4.9041&radius=50"
+          },
           "event": [
             {
               "listen": "test",

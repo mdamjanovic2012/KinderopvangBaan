@@ -324,3 +324,79 @@ class TestJobRequirementsFields:
         job.min_experience = 2
         job.save()
         assert JobSerializer(job).data["min_experience"] == 2
+
+
+# ---------------------------------------------------------------------------
+# CompanyListView — plain array
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestCompanyListView:
+    def test_returns_array(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        assert res.status_code == status.HTTP_200_OK
+        assert isinstance(res.data, list)
+
+    def test_contains_company(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        names = [c["name"] for c in res.data]
+        assert "Test Kinderopvang BV" in names
+
+    def test_no_auth_required(self, api_client, company):
+        res = api_client.get("/api/jobs/companies/")
+        assert res.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# JobMapPinsView
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestJobMapPinsView:
+    def test_returns_200(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        assert res.status_code == status.HTTP_200_OK
+
+    def test_has_total_and_results(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        assert "total" in res.data
+        assert "results" in res.data
+        assert isinstance(res.data["results"], list)
+
+    def test_guest_sees_limited_pins(self, api_client, company, amsterdam):
+        for i in range(35):
+            Job.objects.create(
+                company=company, title=f"Job {i}", job_type="pm3", contract_type="parttime",
+                source_url=f"https://example.com/pin/{i}", location=amsterdam, city="Amsterdam",
+            )
+        res = api_client.get("/api/jobs/map-pins/")
+        assert len(res.data["results"]) <= 30  # GUEST_JOB_LIMIT * 10
+
+    def test_authenticated_sees_all_pins(self, auth_client, company, amsterdam):
+        for i in range(35):
+            Job.objects.create(
+                company=company, title=f"Job {i}", job_type="pm3", contract_type="parttime",
+                source_url=f"https://example.com/authpin/{i}", location=amsterdam, city="Amsterdam",
+            )
+        res = auth_client.get("/api/jobs/map-pins/")
+        assert len(res.data["results"]) >= 35
+
+    def test_pin_has_location(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/")
+        pins = res.data["results"]
+        assert len(pins) > 0
+        assert pins[0]["location"] is not None
+
+    def test_filter_by_job_type(self, api_client, job):
+        res = api_client.get("/api/jobs/map-pins/?job_type=pm3")
+        for pin in res.data["results"]:
+            assert pin["job_type"] == "pm3"
+
+    def test_job_without_location_excluded(self, api_client, company):
+        Job.objects.create(
+            company=company, title="No location", job_type="pm3", contract_type="fulltime",
+            source_url="https://example.com/noloc",
+        )
+        res = api_client.get("/api/jobs/map-pins/")
+        for pin in res.data["results"]:
+            assert pin["location"] is not None

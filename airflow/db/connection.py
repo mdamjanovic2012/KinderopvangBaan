@@ -14,11 +14,13 @@ def get_connection() -> psycopg2.extensions.connection:
 
     # Azure Key Vault references zijn al opgelost door ACI via env inject
     p = urlparse(raw)
+    # SSL verplicht voor Azure PostgreSQL; optioneel voor lokale dev
+    sslmode = "disable" if p.hostname in ("localhost", "127.0.0.1") else "require"
     return psycopg2.connect(
         dbname=p.path.lstrip("/"),
         user=p.username,
         password=p.password,
         host=p.hostname,
         port=p.port or 5432,
-        sslmode="require",
+        sslmode=sslmode,
     )

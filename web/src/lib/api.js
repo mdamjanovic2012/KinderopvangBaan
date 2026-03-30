@@ -22,25 +22,11 @@ async function request(path, options = {}) {
 export const api = {
   get: (path) => request(path),
 
-
-  // Institutions
-  institutions: (params = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    return request(`/institutions/?${qs}`);
-  },
-  mapPins: (type) => {
-    const qs = type ? `?type=${type}` : "";
-    return request(`/institutions/map-pins/${qs}`);
-  },
-  institution: (id) => request(`/institutions/${id}/`),
-  nearbyInstitutions: ({ lat, lng, radius = 10, type } = {}) => {
-    const params = new URLSearchParams({ lat, lng, radius });
-    if (type) params.set("type", type);
-    return request(`/institutions/nearby/?${params}`);
-  },
-  reviews: (id) => request(`/institutions/${id}/reviews/`),
-
   // Jobs
+  jobMapPins: (jobType) => {
+    const qs = jobType ? `?job_type=${jobType}` : "";
+    return request(`/jobs/map-pins/${qs}`);
+  },
   jobs: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/jobs/?${qs}`);

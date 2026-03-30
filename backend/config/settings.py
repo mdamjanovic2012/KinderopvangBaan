@@ -50,7 +50,6 @@ INSTALLED_APPS = [
 
     # local
     "users",
-    "institutions",
     "jobs",
     "diplomacheck",
 ]
@@ -169,21 +168,6 @@ UNFOLD = {
                         "title": "Dashboard",
                         "icon": "dashboard",
                         "link": reverse_lazy("admin:index"),
-                    },
-                ],
-            },
-            {
-                "title": "Organisaties",
-                "items": [
-                    {
-                        "title": "Alle organisaties",
-                        "icon": "business",
-                        "link": reverse_lazy("admin:institutions_institution_changelist"),
-                    },
-                    {
-                        "title": "Reviews",
-                        "icon": "star",
-                        "link": reverse_lazy("admin:institutions_review_changelist"),
                     },
                 ],
             },

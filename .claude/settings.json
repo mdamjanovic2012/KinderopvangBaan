@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py migrate jobs)",
+      "Bash(curl -s https://www.ikwerkaandetoekomst.nl/static/01dcbd4f458cbc1b/scripts/index.bundle.js)",
+      "Bash(python -c \"import playwright; print\\(''playwright ok''\\)\")",
+      "Bash(python -c \"import requests; import bs4; print\\(''requests/bs4 ok''\\)\")",
+      "Bash(playwright install:*)",
+      "Bash(python -m pytest tests/test_kinderdam.py -v -m \"not integration\")",
+      "Bash(python -m pytest tests/test_kinderdam.py -m integration -v -s)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python -m pytest tests/test_partou.py -m \"not integration\" -v)",
+      "Bash(az acr:*)",
+      "Bash(az keyvault:*)",
+      "Bash(python manage.py test --verbosity=2)",
+      "Bash(python manage.py test --verbosity=2 --keepdb)",
+      "Bash(pytest tests/ --keepdb -q)",
+      "Bash(pytest tests/ --create-db -q)",
+      "Bash(pytest tests/test_admin.py::TestAdminUrl::test_admin_url_accessible -v)",
+      "Bash(pytest tests/test_admin.py::TestAdminUrl::test_admin_url_accessible -v -s)",
+      "Bash(python -m pytest backend/tests/ -q --tb=short)",
+      "Bash(python -m pytest tests/ -q --tb=short)",
+      "Bash(python3 -c \":*)",
+      "Bash(find /Users/milosdamjanovic/Projects/KinderopvangBaan -type f -name *institution* -o -name *instelling*)"
+    ]
+  }
+}

@@ -9,9 +9,7 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-        ("institutions", "0001_initial"),
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
@@ -111,14 +109,6 @@ class Migration(migrations.Migration):
                 ("expires_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "institution",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
-                        related_name="jobs",
-                        to="institutions.institution",
-                    ),
-                ),
             ],
             options={
                 "ordering": ["-created_at"],

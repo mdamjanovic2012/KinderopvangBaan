@@ -36,6 +36,20 @@ class JobSerializer(serializers.ModelSerializer):
         return None
 
 
+class JobMapPinSerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(source="company.name", read_only=True)
+    location = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Job
+        fields = ["id", "title", "job_type", "contract_type", "city", "company_name", "location"]
+
+    def get_location(self, obj):
+        if obj.location is None:
+            return None
+        return {"type": "Point", "coordinates": [obj.location.x, obj.location.y]}
+
+
 class VacatureClickSerializer(serializers.ModelSerializer):
     source_url = serializers.CharField(source="job.source_url", read_only=True)
 
