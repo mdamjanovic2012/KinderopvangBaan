@@ -3,12 +3,13 @@ import hashlib
 from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.measure import D
 
 from .models import Company, Job, VacatureClick
-from .serializers import CompanySerializer, JobSerializer, VacatureClickSerializer
+from .serializers import CompanySerializer, JobSerializer, JobMapPinSerializer, VacatureClickSerializer
 from .constants import CAO_FUNCTIONS
 
 GUEST_JOB_LIMIT = 3
@@ -18,7 +19,7 @@ class JobListView(generics.ListAPIView):
     serializer_class = JobSerializer
     filterset_fields = ["job_type", "contract_type", "city", "is_active", "company"]
     search_fields = ["title", "description", "city", "location_name"]
-    authentication_classes = []
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
@@ -57,7 +58,7 @@ class NearbyJobsView(APIView):
     """
     GET /api/jobs/nearby/?lat=52.37&lng=4.89&radius=15&job_type=bso
     """
-    authentication_classes = []
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
@@ -136,8 +137,41 @@ class JobChoicesView(APIView):
         })
 
 
-class CompanyListView(generics.ListAPIView):
-    serializer_class = CompanySerializer
+class CompanyListView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
-    queryset = Company.objects.filter(is_active=True)
+
+    def get(self, request):
+        companies = Company.objects.filter(is_active=True)
+        return Response(CompanySerializer(companies, many=True).data)
+
+
+class JobMapPinsView(APIView):
+    """
+    GET /api/jobs/map-pins/
+    Lichtgewicht endpoint voor kaartpinnen — alleen jobs met locatie.
+    Gasten zien een beperkt aantal pinnen; ingelogde gebruikers alles.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        qs = (
+            Job.objects
+            .filter(is_active=True, is_expired=False, location__isnull=False)
+            .select_related("company")
+        )
+        job_type = request.query_params.get("job_type")
+        if job_type:
+            qs = qs.filter(job_type=job_type)
+
+        is_authenticated = request.user and request.user.is_authenticated
+        total = qs.count()
+        if not is_authenticated:
+            qs = qs[:GUEST_JOB_LIMIT * 10]  # toon beperkt aantal pinnen voor gasten
+
+        return Response({
+            "total": total,
+            "blurred": not is_authenticated and total > GUEST_JOB_LIMIT * 10,
+            "results": JobMapPinSerializer(qs, many=True).data,
+        })

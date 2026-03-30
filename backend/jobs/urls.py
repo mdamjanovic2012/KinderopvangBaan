@@ -8,4 +8,5 @@ urlpatterns = [
     path("nearby/", views.NearbyJobsView.as_view(), name="nearby_jobs"),
     path("choices/", views.JobChoicesView.as_view(), name="job_choices"),
     path("companies/", views.CompanyListView.as_view(), name="company_list"),
+    path("map-pins/", views.JobMapPinsView.as_view(), name="job_map_pins"),
 ]

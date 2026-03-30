@@ -41,6 +41,10 @@ export const api = {
   reviews: (id) => request(`/institutions/${id}/reviews/`),
 
   // Jobs
+  jobMapPins: (jobType) => {
+    const qs = jobType ? `?job_type=${jobType}` : "";
+    return request(`/jobs/map-pins/${qs}`);
+  },
   jobs: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return request(`/jobs/?${qs}`);
