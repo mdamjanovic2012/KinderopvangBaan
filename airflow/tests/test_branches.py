@@ -122,15 +122,20 @@ class TestMatchVestiging:
         assert result is not None
         assert result["lat"] == 51.92
 
-    def test_city_match_multiple_vestigingen_returns_none(self):
+    def test_city_match_multiple_vestigingen_returns_centroid(self):
+        """Multiple branches in same city → centroid instead of None."""
         cur = MagicMock()
         cur.fetchone = MagicMock(return_value=None)
         cur.fetchall = MagicMock(return_value=[
             ("3012EV", "Rotterdam", 4.48, 51.92),
-            ("3014AB", "Rotterdam", 4.49, 51.93),
+            ("3014AB", "Rotterdam", 4.50, 51.94),
         ])
         result = match_vestiging(cur, "test", "Rotterdam", "Rotterdam")
-        assert result is None
+        assert result is not None
+        assert result["lon"] == pytest.approx(4.49)
+        assert result["lat"] == pytest.approx(51.93)
+        assert result["city"] == "Rotterdam"
+        assert result["postcode"] == ""
 
     def test_no_match_returns_none(self):
         cur = MagicMock()

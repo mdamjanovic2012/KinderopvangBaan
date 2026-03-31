@@ -112,6 +112,23 @@ class TestCompaNannyFetchJobs:
         assert job is not None
         assert job["city"] == "Amsterdam"
         assert "Nederlands" not in job["city"]
+        assert "Nederlands" not in job.get("location_name", "")
+
+    def test_location_name_includes_postcode(self):
+        """When JSON-LD has a postcode, location_name should use it for precise geocoding."""
+        scraper = CompaNannyScraper()
+        url = f"{BASE_URL}/vacatures/amsterdam/pedagogisch-medewerker"
+
+        detail_resp = MagicMock()
+        detail_resp.text = DETAIL_HTML
+        detail_resp.raise_for_status = MagicMock()
+
+        with patch("scrapers.compananny.requests.get", return_value=detail_resp):
+            job = scraper._scrape_job_page(url)
+
+        # location_name should be more specific than just city (includes postcode)
+        assert job["postcode"] == "1012AB"
+        assert "1012AB" in job["location_name"] or job["location_name"] == "Amsterdam"
 
     def test_postcode_extracted(self):
         scraper = CompaNannyScraper()

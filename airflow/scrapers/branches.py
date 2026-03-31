@@ -17,12 +17,35 @@ Matching strategy:
   3. Fallback: existing city-level geocoding (unchanged)
 
 Supported companies:
-  - Partou       (partou.nl/kinderopvang/vestigingen)
-  - Kinderdam    (kinderdam.nl/locaties)
-  - Spring       (spring-kinderopvang.nl/vestigingen)
-  - Prokino      (prokino.nl)
-  - Norlandia    (norlandia.nl/kinderopvang/vestigingen)
-  - Gro-up       (gro-up.nl/locaties)
+  - Partou            (partou.nl/kinderopvang/vestigingen)
+  - Kinderdam         (kinderdam.nl/locaties)
+  - Spring            (spring-kinderopvang.nl/vestigingen)
+  - Prokino           (prokino.nl)
+  - Norlandia         (norlandia.nl/kinderopvang/vestigingen)
+  - Gro-up            (gro-up.nl/locaties)
+  - CompaNanny        (compananny.nl/vestigingen)
+  - Sinne             (sinnekinderopvang.nl/vestigingen)
+  - TintelTuin        (tinteltuin.nl/vestigingen)
+  - Humankind         (humankind.nl/vestigingen)
+  - Kibeo             (kibeo.nl/vestigingen)
+  - Kindergarden      (kindergarden.nl/vestigingen)
+  - Bijdehandjes      (bijdehandjes.nl/vestigingen)
+  - Bink              (binkopvang.nl/vestigingen)
+  - DAK               (dakkindercentra.nl/vestigingen)
+  - Dichtbij          (kdv-dichtbij.nl/vestigingen)
+  - Kinderwoud        (kinderwoud.nl/vestigingen)
+  - Kids First        (kidsfirstkinderopvang.nl/vestigingen)
+  - Kober             (kober.nl/vestigingen)
+  - MIK               (mik-nijmegen.nl/vestigingen)
+  - Op Stoom          (op-stoom.nl/vestigingen)
+  - SKA               (ska.nl/vestigingen)
+  - 2samen            (2samen.nl/vestigingen)
+  - Wasko             (wasko.nl/vestigingen)
+  - Wij zijn JONG     (korein.nl/vestigingen)
+  - Kanteel           (kanteel.nl/vestigingen)
+  - KO Walcheren      (kinderopvangwalcheren.nl/vestigingen)
+  - Samenwerkende KO  (samenwerkendekinderopvang.nl/vestigingen)
+  - KION              (kion.nl/vestigingen)
 """
 
 import logging
@@ -135,7 +158,7 @@ def match_vestiging(cur, company_slug: str, location_name: str, city: str) -> di
         if row:
             return {"postcode": row[0], "city": row[1], "lon": row[2], "lat": row[3]}
 
-    # 2. City match — only when exactly one branch exists in that city
+    # 2. City match — single branch: use exact coords; multiple: use centroid
     if city:
         cur.execute("""
             SELECT postcode, city,
@@ -149,6 +172,12 @@ def match_vestiging(cur, company_slug: str, location_name: str, city: str) -> di
         rows = cur.fetchall()
         if len(rows) == 1:
             return {"postcode": rows[0][0], "city": rows[0][1], "lon": rows[0][2], "lat": rows[0][3]}
+        elif len(rows) > 1:
+            # Multiple branches in city — use centroid so jobs spread out better
+            # than pointing at the generic PDOK city centre
+            avg_lon = sum(r[2] for r in rows) / len(rows)
+            avg_lat = sum(r[3] for r in rows) / len(rows)
+            return {"postcode": "", "city": rows[0][1], "lon": avg_lon, "lat": avg_lat}
 
     return None
 
@@ -411,37 +440,143 @@ def _scrape_generic_vestigingen(company_slug: str, base_url: str,
 
 # ── Company configs ───────────────────────────────────────────────────────────
 
+def _generic(slug: str, *sites: str) -> dict:
+    """Helper: build a COMPANY_CONFIGS entry using _scrape_generic_vestigingen."""
+    paths = ["/vestigingen", "/locaties", "/onze-locaties", "/kinderopvang/vestigingen",
+             "/kinderopvang/locaties", "/over-ons/vestigingen"]
+    return {
+        "scraper": lambda s=slug, ss=sites: next(
+            (locs for base in ss
+             for locs in [_scrape_generic_vestigingen(s, base, paths)] if locs),
+            [],
+        ),
+    }
+
+
 COMPANY_CONFIGS = {
+    # ── custom scrapers ───────────────────────────────────────────────────────
     "partou": {
         "scraper": scrape_partou_vestigingen,
     },
     "kinderdam": {
         "scraper": scrape_kinderdam_vestigingen,
     },
-    "spring": {
-        "scraper": lambda: _scrape_generic_vestigingen(
-            "spring", "https://www.spring-kinderopvang.nl",
-            ["/vestigingen", "/locaties", "/onze-locaties"],
-        ),
-    },
-    "prokino": {
-        "scraper": lambda: _scrape_generic_vestigingen(
-            "prokino", "https://www.prokino.nl",
-            ["/locaties", "/vestigingen", "/kinderopvang"],
-        ),
-    },
-    "norlandia": {
-        "scraper": lambda: _scrape_generic_vestigingen(
-            "norlandia", "https://www.norlandia.nl",
-            ["/kinderopvang/vestigingen", "/vestigingen", "/locaties"],
-        ),
-    },
-    "gro-up": {
-        "scraper": lambda: _scrape_generic_vestigingen(
-            "gro-up", "https://www.gro-up.nl",
-            ["/locaties", "/vestigingen", "/kinderopvang/locaties"],
-        ),
-    },
+    # ── generic scrapers ──────────────────────────────────────────────────────
+    "spring": _generic(
+        "spring",
+        "https://www.spring-kinderopvang.nl",
+    ),
+    "prokino": _generic(
+        "prokino",
+        "https://www.prokino.nl",
+    ),
+    "norlandia": _generic(
+        "norlandia",
+        "https://www.norlandia.nl",
+    ),
+    "gro-up": _generic(
+        "gro-up",
+        "https://www.gro-up.nl",
+    ),
+    "compananny": _generic(
+        "compananny",
+        "https://www.compananny.nl",
+        "https://www.werkenbijcompananny.nl",
+    ),
+    "sinne": _generic(
+        "sinne",
+        "https://www.sinnekinderopvang.nl",
+        "https://www.sinne.nl",
+    ),
+    "tinteltuin": _generic(
+        "tinteltuin",
+        "https://www.tinteltuin.nl",
+    ),
+    "humankind": _generic(
+        "humankind",
+        "https://www.humankind.nl",
+    ),
+    "kibeo": _generic(
+        "kibeo",
+        "https://www.kibeo.nl",
+    ),
+    "kindergarden": _generic(
+        "kindergarden",
+        "https://www.kindergarden.nl",
+        "https://www.werkenbijkindergarden.nl",
+    ),
+    "bijdehandjes": _generic(
+        "bijdehandjes",
+        "https://www.bijdehandjes.nl",
+    ),
+    "bink": _generic(
+        "bink",
+        "https://www.binkopvang.nl",
+        "https://www.bink.nl",
+    ),
+    "dak": _generic(
+        "dak",
+        "https://www.dakkindercentra.nl",
+    ),
+    "dichtbij": _generic(
+        "dichtbij",
+        "https://www.kdv-dichtbij.nl",
+        "https://www.dichtbijkinderopvang.nl",
+    ),
+    "kinderwoud": _generic(
+        "kinderwoud",
+        "https://www.kinderwoud.nl",
+    ),
+    "kids-first": _generic(
+        "kids-first",
+        "https://www.kidsfirstkinderopvang.nl",
+        "https://www.kidsfirst.nl",
+    ),
+    "kober": _generic(
+        "kober",
+        "https://www.kober.nl",
+    ),
+    "mik": _generic(
+        "mik",
+        "https://www.mik-nijmegen.nl",
+    ),
+    "op-stoom": _generic(
+        "op-stoom",
+        "https://www.op-stoom.nl",
+    ),
+    "ska": _generic(
+        "ska",
+        "https://www.ska.nl",
+    ),
+    "2samen": _generic(
+        "2samen",
+        "https://www.2samen.nl",
+    ),
+    "wasko": _generic(
+        "wasko",
+        "https://www.wasko.nl",
+    ),
+    "wij-zijn-jong": _generic(
+        "wij-zijn-jong",
+        "https://www.korein.nl",
+        "https://www.wijzijnjong.nl",
+    ),
+    "kanteel": _generic(
+        "kanteel",
+        "https://www.kanteel.nl",
+    ),
+    "ko-walcheren": _generic(
+        "ko-walcheren",
+        "https://www.kinderopvangwalcheren.nl",
+    ),
+    "samenwerkende-ko": _generic(
+        "samenwerkende-ko",
+        "https://www.samenwerkendekinderopvang.nl",
+    ),
+    "kion": _generic(
+        "kion",
+        "https://www.kion.nl",
+    ),
 }
 
 

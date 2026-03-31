@@ -53,6 +53,64 @@ CONTENTFUL_QUERY = """
 SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
 HOURS_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
 
+# Facility type prefixes that appear between "|" and the actual location name
+# in Partou job titles, e.g. "Pedagogisch Medewerker | BSO Bolstraat Amsterdam"
+_FACILITY_PREFIXES = [
+    "KDV VE en BSO", "KDV en BSO", "KDV VE", "Sport BSO", "Flex VE",
+    "BBL-opleiding", "EVC Traject", "POV VE", "Flexpool Regio",
+    "Verticale groep", "Babygroep", "Peutergroep", "Flexpool",
+    "BBL", "EVC", "KDV", "BSO", "POV", "VE", "IKC",
+]
+_PARTOU_TYPE_PREFIX_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(p) for p in _FACILITY_PREFIXES) + r")\s+",
+    re.IGNORECASE,
+)
+
+
+def _extract_location_from_title(title: str, city: str) -> str:
+    """
+    Extract a precise location string from a Partou job title.
+
+    Partou titles often encode the specific branch location:
+      "Pedagogisch Medewerker | BSO Bolstraat Utrecht" + city="Utrecht"
+      → "Bolstraat, Utrecht"
+      "Pedagogisch Medewerker | Babygroep Amsterdam West" + city="Amsterdam"
+      → "Amsterdam West"  (district is better than bare city)
+
+    Falls back to city when no specific location can be extracted.
+    """
+    if not city:
+        return city or ""
+    if "|" not in title:
+        return city
+
+    # Part after first pipe; drop any further pipe-separated segments
+    part = title.split("|", 1)[1].strip().split("|")[0].strip()
+
+    # Strip facility/role type prefix
+    part = _PARTOU_TYPE_PREFIX_RE.sub("", part).strip()
+
+    if not part:
+        return city
+
+    # If part already starts with the city name, it's a city-district descriptor
+    # like "Amsterdam West" or "Amsterdam-Zuid" — use as-is for better geocoding
+    if part.lower().startswith(city.lower()):
+        return part.strip()
+
+    # Otherwise try to strip the city name from the end to isolate the street
+    city_end_re = re.compile(
+        r"[\s,\-]+?" + re.escape(city) + r"(?:\s*[\-\–/]\s*\w+)?\s*$",
+        re.IGNORECASE,
+    )
+    street = city_end_re.sub("", part).strip().strip(",").strip()
+
+    if len(street) > 2 and re.search(r"[A-Za-z]{2}", street):
+        return f"{street}, {city}"
+
+    # Part contained only the city or couldn't be parsed
+    return part if re.search(r"[A-Za-z]", part) else city
+
 CONTRACT_MAP = {
     "fulltime":  "fulltime",
     "full-time": "fulltime",
@@ -186,13 +244,16 @@ def _parse_contentful_items(items: list) -> list[dict]:
         description  = item.get("aboutJob") or ""
         short_desc   = item.get("headerText") or ""
 
+        city = item.get("city") or ""
         jobs.append({
             "source_url":        source_url,
             "external_id":       external_id,
             "title":             title,
             "short_description": short_desc[:500] if short_desc else "",
             "description":       description,
-            "location_name":     item.get("city") or "",
+            "location_name":     _extract_location_from_title(title, city),
+            "city":              city,
+            "postcode":          "",
             "hours_min":         hours_min,
             "hours_max":         hours_max,
             "salary_min":        float(salary_min) if salary_min else None,

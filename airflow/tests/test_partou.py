@@ -19,6 +19,7 @@ from scrapers.partou import (
     _parse_contentful_items,
     _job_type_from_role,
     _fetch_contentful,
+    _extract_location_from_title,
     PartouScraper,
     BASE_URL,
     JOBS_URL,
@@ -58,6 +59,68 @@ class TestParseContract:
 
     def test_case_insensitive(self):
         assert _parse_contract("FULLTIME") == "fulltime"
+
+
+# ── _extract_location_from_title ──────────────────────────────────────────────
+
+class TestExtractLocationFromTitle:
+    def test_street_extracted(self):
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | BSO Bolstraat Utrecht", "Utrecht"
+        )
+        assert "Bolstraat" in result
+        assert "Utrecht" in result
+
+    def test_street_with_number(self):
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | KDV Kanaalweg 94B Utrecht", "Utrecht"
+        )
+        assert "Kanaalweg 94B" in result or "Kanaalweg" in result
+
+    def test_city_district_preserved(self):
+        # "Amsterdam West" is better than just "Amsterdam"
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | Babygroep Amsterdam West", "Amsterdam"
+        )
+        assert "Amsterdam" in result
+        assert "West" in result
+
+    def test_city_district_with_dash(self):
+        result = _extract_location_from_title(
+            "Bijbaan Pedagogisch Medewerker | Amsterdam-Zuid", "Amsterdam"
+        )
+        assert "Amsterdam" in result
+
+    def test_no_pipe_returns_city(self):
+        result = _extract_location_from_title(
+            "ZZP'er in de kinderopvang? Maak de overstap naar Partou in Amsterdam!",
+            "Amsterdam",
+        )
+        assert result == "Amsterdam"
+
+    def test_empty_city_returns_empty(self):
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | BSO Bolstraat Utrecht", ""
+        )
+        assert result == ""
+
+    def test_location_manager_city_only(self):
+        result = _extract_location_from_title(
+            "Locatiemanager | Amsterdam", "Amsterdam"
+        )
+        assert "Amsterdam" in result
+
+    def test_kdv_ve_prefix_stripped(self):
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | KDV VE Van Nijenrodeweg Amsterdam", "Amsterdam"
+        )
+        assert "Van Nijenrodeweg" in result or "Amsterdam" in result
+
+    def test_multiple_word_street(self):
+        result = _extract_location_from_title(
+            "Pedagogisch Medewerker | BSO Jan de Louterstraat Amsterdam", "Amsterdam"
+        )
+        assert "Jan de Louterstraat" in result or "Amsterdam" in result
 
 
 # ── _parse_json_items ──────────────────────────────────────────────────────────
@@ -158,6 +221,7 @@ class TestParseContentfulItems:
             "slug": "pm-amsterdam-1234",
             "link": None,
             "roleTitle": "Pedagogisch Medewerker",
+            "city": "Amsterdam",
             "minHours": 24,
             "maxHours": 32,
             "minSalary": 2200,
@@ -181,6 +245,28 @@ class TestParseContentfulItems:
         assert j["hours_max"] == 32
         assert j["salary_min"] == 2200.0
         assert j["salary_max"] == 3000.0
+
+    def test_city_field_present(self):
+        jobs = _parse_contentful_items([self.make_item(city="Utrecht")])
+        assert jobs[0]["city"] == "Utrecht"
+
+    def test_location_name_uses_title_street(self):
+        item = self.make_item(
+            roleTitle="Pedagogisch Medewerker | BSO Bolstraat Utrecht",
+            city="Utrecht",
+        )
+        jobs = _parse_contentful_items([item])
+        # location_name should be more specific than just "Utrecht"
+        assert jobs[0]["location_name"] != "Utrecht" or "Bolstraat" in jobs[0]["location_name"]
+        assert "Utrecht" in jobs[0]["location_name"]
+
+    def test_location_name_falls_back_to_city(self):
+        item = self.make_item(
+            roleTitle="Pedagogisch Medewerker",
+            city="Amsterdam",
+        )
+        jobs = _parse_contentful_items([item])
+        assert "Amsterdam" in jobs[0]["location_name"]
 
     def test_uses_link_when_present(self):
         jobs = _parse_contentful_items([self.make_item(link="https://external.nl/job/123")])

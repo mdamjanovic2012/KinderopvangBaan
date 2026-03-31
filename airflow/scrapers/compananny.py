@@ -50,8 +50,12 @@ class CompaNannyScraper(WordPressJobsScraper):
         jsonld = extract_job_posting_jsonld(soup)
         if jsonld and jsonld.get("title"):
             job = parse_job_from_jsonld(url, jsonld)
-            job["city"]          = _clean_city(job.get("city", ""))
-            job["location_name"] = job["city"]
+            raw_city = job.get("city", "")
+            clean_city = _clean_city(raw_city)
+            job["city"] = clean_city
+            # Propagate city cleanup into location_name (which may include city)
+            if raw_city and raw_city != clean_city and raw_city in job.get("location_name", ""):
+                job["location_name"] = job["location_name"].replace(raw_city, clean_city).strip(", ").strip()
             return job
 
         # HTML fallback
