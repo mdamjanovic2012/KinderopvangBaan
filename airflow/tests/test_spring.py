@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scrapers.spring_kinderopvang import (
     get_spring_job_urls,
     scrape_spring_job_page,
+    _parse_euros,
     BASE_URL,
     JOBS_URL,
 )
@@ -55,6 +56,16 @@ DETAIL_HTML_NO_HOURS = """<html><body>
     <p>Leidinggevende functie voor ervaren manager.</p>
   </div>
 </body></html>"""
+
+
+# ── _parse_euros ──────────────────────────────────────────────────────────────
+
+class TestParseEuros:
+    def test_dutch_format(self):
+        assert _parse_euros("2.641") == 2641.0
+
+    def test_invalid_returns_none(self):
+        assert _parse_euros("nvt") is None
 
 
 # ── get_spring_job_urls ───────────────────────────────────────────────────────
@@ -135,6 +146,24 @@ class TestScrapeSpringJobPage:
             job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/1")
         assert job is None
 
+    def test_returns_none_when_no_h1(self):
+        no_h1_html = "<html><body><main><p>Pagina niet beschikbaar</p></main></body></html>"
+        resp = MagicMock(); resp.text = no_h1_html; resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/1")
+        assert job is None
+
+    def test_salary_extracted(self):
+        salary_html = """<html><body>
+            <h1>PM BSO Amsterdam</h1>
+            <p>Fulltime | 32 uur | Amsterdam | € 2.641 – € 3.630</p>
+        </body></html>"""
+        resp = MagicMock(); resp.text = salary_html; resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/3-pm-bso")
+        assert job["salary_min"] == 2641.0
+        assert job["salary_max"] == 3630.0
+
 
 # ── SpringKinderopvangScraper.fetch_jobs (gemockt) ────────────────────────────
 
@@ -164,6 +193,25 @@ class TestSpringScraperFetchJobs:
 
     def test_company_slug(self):
         assert SpringKinderopvangScraper.company_slug == "spring"
+
+
+class TestSpringFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = SpringKinderopvangScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Spring Kinderopvang Brabant"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Spring Kinderopvang"
+        assert company["description"] == "Spring Kinderopvang Brabant"
+
+    def test_graceful_on_error(self):
+        scraper = SpringKinderopvangScraper()
+        with patch("scrapers.spring_kinderopvang.requests.get", side_effect=Exception("SSL")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Spring Kinderopvang"
+        assert company["logo_url"] == ""
 
 
 # ── Integratie tests ──────────────────────────────────────────────────────────

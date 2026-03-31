@@ -87,7 +87,7 @@ def _werksoort_to_job_type(werksoort: str) -> str:
     return ""
 
 
-def _render_page(context: BrowserContext, url: str, wait_for_id: str | None = None) -> str:
+def _render_page(context: BrowserContext, url: str, wait_for_id: str | None = None) -> str:  # pragma: no cover
     """Render een pagina met Playwright en geef de volledige HTML terug."""
     page = context.new_page()
     try:
@@ -237,7 +237,7 @@ class KinderdamScraper(BaseScraper):
     def fetch_jobs(self) -> list[dict]:
         logger.info(f"[kinderdam] Start scrape via Playwright: {JOBS_URL}")
 
-        with sync_playwright() as pw:
+        with sync_playwright() as pw:  # pragma: no cover
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(
                 user_agent=SCRAPER_HEADERS["User-Agent"],

@@ -130,6 +130,41 @@ class TestSinneFetchJobs:
             jobs = scraper.fetch_jobs()
         assert jobs == []
 
+    def test_detail_error_returns_none(self):
+        """Detail page fetch failure returns None from _scrape_job_page."""
+        scraper = SinneScraper()
+        with patch("scrapers.easycruit.requests.get", side_effect=Exception("conn")):
+            result = scraper._scrape_job_page("https://sinne.easycruit.com/vacancy/123/1?iso=nl")
+        assert result is None
+
+    def test_detail_without_h1_returns_none(self):
+        """If detail page has no <h1>, _scrape_job_page returns None."""
+        scraper = SinneScraper()
+        no_h1_resp = MagicMock()
+        no_h1_resp.text = "<html><body><p>Geen titel</p></body></html>"
+        no_h1_resp.raise_for_status = MagicMock()
+        with patch("scrapers.easycruit.requests.get", return_value=no_h1_resp):
+            result = scraper._scrape_job_page("https://sinne.easycruit.com/vacancy/123/1?iso=nl")
+        assert result is None
+
+    def test_fetch_company_returns_dict(self):
+        scraper = SinneScraper()
+        website_resp = MagicMock()
+        website_resp.text = '<html><head><meta name="description" content="Sinne kinderopvang Friesland"></head><body></body></html>'
+        website_resp.raise_for_status = MagicMock()
+        with patch("scrapers.easycruit.requests.get", return_value=website_resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Sinne Kinderopvang"
+        assert "sinnekinderopvang.nl" in company["website"]
+        assert company["description"] == "Sinne kinderopvang Friesland"
+
+    def test_fetch_company_graceful_on_error(self):
+        scraper = SinneScraper()
+        with patch("scrapers.easycruit.requests.get", side_effect=Exception("SSL")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Sinne Kinderopvang"
+        assert company["logo_url"] == ""
+
 
 @pytest.mark.integration
 class TestSinneLive:

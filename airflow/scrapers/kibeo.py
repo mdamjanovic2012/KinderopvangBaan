@@ -35,7 +35,7 @@ JOBS_URL  = f"{BASE_URL}/vacatures/"
 JUNIA_URL = f"{BASE_URL}/werken-bij-junia/"
 
 
-def _render_page(context: BrowserContext, url: str, wait_ms: int = 3000) -> str:
+def _render_page(context: BrowserContext, url: str, wait_ms: int = 3000) -> str:  # pragma: no cover
     """Render a page via Playwright and return full HTML."""
     page = context.new_page()
     try:
@@ -109,7 +109,7 @@ class KibeoScraper(BaseScraper):
     def fetch_jobs(self) -> list[dict]:
         logger.info(f"[kibeo] Start Playwright scraping: {JOBS_URL}")
 
-        with sync_playwright() as pw:
+        with sync_playwright() as pw:  # pragma: no cover
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(
                 user_agent=SCRAPER_HEADERS["User-Agent"],

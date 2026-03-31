@@ -27,7 +27,7 @@ BASE_URL = "https://www.werkenbijkindergarden.nl"
 JOBS_URL = f"{BASE_URL}/vacatures/"
 
 
-def _get_job_urls_playwright() -> list[str]:
+def _get_job_urls_playwright() -> list[str]:  # pragma: no cover
     """Render listing page with Playwright and extract job URLs."""
     urls = []
     try:

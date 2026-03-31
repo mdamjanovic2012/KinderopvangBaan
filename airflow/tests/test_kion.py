@@ -69,6 +69,12 @@ class TestSalaryVal:
     def test_integer(self):
         assert _salary_val(2641) == 2641.0
 
+    def test_non_numeric_string_returns_none(self):
+        assert _salary_val("not-a-number") is None
+
+    def test_invalid_type_returns_none(self):
+        assert _salary_val([1, 2]) is None
+
 
 class TestStripHtml:
     def test_strips_tags(self):
@@ -150,6 +156,52 @@ class TestKIONFetchJobs:
             jobs = scraper.fetch_jobs()
 
         assert jobs[0]["postcode"] == "6544AK"
+
+    def test_skips_offer_with_empty_title(self):
+        scraper = KIONScraper()
+        api_resp = MagicMock()
+        api_resp.json.return_value = {"offers": [
+            {"title": "", "city": "Amsterdam", "status": "published",
+             "careers_url": "https://test.nl/job/1", "guid": "g1",
+             "salary": {}, "description": "", "employment_type_code": ""},
+        ]}
+        api_resp.raise_for_status = MagicMock()
+        with patch("scrapers.recruitee_api.requests.get", return_value=api_resp):
+            jobs = scraper.fetch_jobs()
+        assert jobs == []
+
+    def test_external_id_fallback_from_url(self):
+        """When guid is empty, external_id falls back to URL slug."""
+        scraper = KIONScraper()
+        api_resp = MagicMock()
+        api_resp.json.return_value = {"offers": [
+            {"title": "PM Amsterdam", "city": "Amsterdam", "status": "published",
+             "careers_url": "https://test.nl/vacature/pm-amsterdam",
+             "guid": "", "id": "",
+             "salary": {}, "description": "", "employment_type_code": ""},
+        ]}
+        api_resp.raise_for_status = MagicMock()
+        with patch("scrapers.recruitee_api.requests.get", return_value=api_resp):
+            jobs = scraper.fetch_jobs()
+        assert len(jobs) == 1
+        assert jobs[0]["external_id"] == "pm-amsterdam"
+
+    def test_fetch_company_returns_dict(self):
+        scraper = KIONScraper()
+        website_resp = MagicMock()
+        website_resp.text = '<html><head><meta name="description" content="KION kinderopvang"></head><body></body></html>'
+        website_resp.raise_for_status = MagicMock()
+        with patch("scrapers.recruitee_api.requests.get", return_value=website_resp):
+            company = scraper.fetch_company()
+        assert "KION" in company["name"]
+        assert "werkenbijkion.nl" in company["website"]
+
+    def test_fetch_company_graceful_on_error(self):
+        scraper = KIONScraper()
+        with patch("scrapers.recruitee_api.requests.get", side_effect=Exception("conn")):
+            company = scraper.fetch_company()
+        assert "KION" in company["name"]
+        assert company["logo_url"] == ""
 
     def test_returns_empty_on_api_error(self):
         scraper = KIONScraper()

@@ -89,6 +89,70 @@ class TestKindergardenFetchJobs:
             jobs = scraper.fetch_jobs()
         assert jobs == []
 
+    def test_html_fallback_when_no_jsonld(self):
+        """When detail page has no JSON-LD, fall back to HTML parsing."""
+        scraper = KindergardenScraper()
+        fallback_html = """<html><body>
+            <h1>Locatiemanager BSO Amsterdam</h1>
+            <main><p>Wij zoeken een locatiemanager voor 32-36 uur per week in Amsterdam.</p></main>
+        </body></html>"""
+        detail_resp = MagicMock()
+        detail_resp.text = fallback_html
+        detail_resp.raise_for_status = MagicMock()
+
+        url = f"{BASE_URL}/vacatures/locatiemanager-bso-amsterdam"
+        with patch("scrapers.kindergarden._get_job_urls_playwright", return_value=[url]):
+            with patch("scrapers.kindergarden.requests.get", return_value=detail_resp):
+                jobs = scraper.fetch_jobs()
+
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Locatiemanager BSO Amsterdam"
+        assert jobs[0]["hours_min"] == 32
+        assert jobs[0]["hours_max"] == 36
+
+    def test_html_fallback_skips_empty_h1(self):
+        """Pages without h1 are skipped in HTML fallback."""
+        scraper = KindergardenScraper()
+        no_h1_html = """<html><body><main><p>Geen vacature info</p></main></body></html>"""
+        detail_resp = MagicMock()
+        detail_resp.text = no_h1_html
+        detail_resp.raise_for_status = MagicMock()
+
+        url = f"{BASE_URL}/vacatures/unknown"
+        with patch("scrapers.kindergarden._get_job_urls_playwright", return_value=[url]):
+            with patch("scrapers.kindergarden.requests.get", return_value=detail_resp):
+                jobs = scraper.fetch_jobs()
+        assert jobs == []
+
+    def test_fetch_jobs_handles_request_error(self):
+        """Exceptions on detail page are caught and logged, job is skipped."""
+        scraper = KindergardenScraper()
+        url = f"{BASE_URL}/vacatures/failing-page"
+        with patch("scrapers.kindergarden._get_job_urls_playwright", return_value=[url]):
+            with patch("scrapers.kindergarden.requests.get", side_effect=Exception("timeout")):
+                jobs = scraper.fetch_jobs()
+        assert jobs == []
+
+
+class TestKindergardenFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = KindergardenScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Kindergarden kinderopvang"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.kindergarden.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kindergarden"
+        assert company["description"] == "Kindergarden kinderopvang"
+        assert BASE_URL in company["website"]
+
+    def test_graceful_on_error(self):
+        scraper = KindergardenScraper()
+        with patch("scrapers.kindergarden.requests.get", side_effect=Exception("conn")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kindergarden"
+        assert company["logo_url"] == ""
+
 
 @pytest.mark.integration
 class TestKindergardenLive:

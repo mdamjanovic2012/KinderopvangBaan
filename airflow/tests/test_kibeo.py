@@ -19,7 +19,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scrapers.kibeo import KibeoScraper, BASE_URL, JOBS_URL, JUNIA_URL
+from scrapers.kibeo import KibeoScraper, _scrape_detail_html, BASE_URL, JOBS_URL, JUNIA_URL
 from scrapers.wordpress_jobs import extract_job_posting_jsonld, parse_job_from_jsonld
 from bs4 import BeautifulSoup
 
@@ -103,6 +103,40 @@ class TestKibeoJsonldParsing:
         # Manual fallback check
         h1 = soup.find("h1")
         assert h1 and "Groepsleider" in h1.get_text()
+
+
+# ── _scrape_detail_html ───────────────────────────────────────────────────────
+
+class TestScrapeDetailHtml:
+    def test_jsonld_path(self):
+        """When JSON-LD is present, parse_job_from_jsonld result is returned."""
+        mock_ctx = MagicMock()
+        detail_url = f"{BASE_URL}/vacatures/kibeo-123/"
+        with patch("scrapers.kibeo._render_page", return_value=DETAIL_WITH_LD):
+            job = _scrape_detail_html(mock_ctx, detail_url)
+        assert job is not None
+        assert job["title"] == "Pedagogisch Medewerker KDV Middelburg"
+        assert job["city"] == "Middelburg"
+
+    def test_html_fallback(self):
+        """When no JSON-LD, falls back to HTML h1 + article parsing."""
+        mock_ctx = MagicMock()
+        detail_url = f"{BASE_URL}/vacatures/groepsleider-bso/"
+        with patch("scrapers.kibeo._render_page", return_value=DETAIL_FALLBACK):
+            job = _scrape_detail_html(mock_ctx, detail_url)
+        assert job is not None
+        assert job["title"] == "Groepsleider BSO Vlissingen"
+        assert job["external_id"] == "groepsleider-bso"
+        assert job["hours_min"] == 24
+        assert job["hours_max"] == 32
+
+    def test_returns_none_when_no_title(self):
+        """Pages without h1 or JSON-LD title return None."""
+        mock_ctx = MagicMock()
+        no_title_html = "<html><body><main><p>Pagina niet gevonden</p></main></body></html>"
+        with patch("scrapers.kibeo._render_page", return_value=no_title_html):
+            result = _scrape_detail_html(mock_ctx, f"{BASE_URL}/vacatures/gone/")
+        assert result is None
 
 
 # ── Integration tests (require Playwright + network) ─────────────────────────

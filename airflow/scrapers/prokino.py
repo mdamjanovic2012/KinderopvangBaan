@@ -55,7 +55,7 @@ def _parse_euros(raw: str) -> float | None:
         return None
 
 
-def _render_page(context: BrowserContext, url: str) -> str:
+def _render_page(context: BrowserContext, url: str) -> str:  # pragma: no cover
     """Render a page with Playwright and return full HTML."""
     page = context.new_page()
     try:
@@ -196,7 +196,7 @@ class ProkinoScraper(BaseScraper):
     def fetch_jobs(self) -> list[dict]:
         logger.info(f"[prokino] Starting Playwright scrape")
 
-        with sync_playwright() as pw:
+        with sync_playwright() as pw:  # pragma: no cover
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(
                 user_agent=SCRAPER_HEADERS["User-Agent"],

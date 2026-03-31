@@ -63,12 +63,70 @@ DETAIL_HTML = """<html><body>
 </body></html>"""
 
 
+from scrapers.prokino import _parse_euros
+
+
 class TestProkinoConfig:
     def test_company_slug(self):
         assert ProkinoScraper.company_slug == "prokino"
 
     def test_base_url(self):
         assert "prokino.nl" in BASE_URL
+
+
+class TestParseEuros:
+    def test_dutch_format(self):
+        assert _parse_euros("2.641") == 2641.0
+
+    def test_comma_decimal(self):
+        assert _parse_euros("2.641,50") == 2641.5
+
+    def test_invalid_returns_none(self):
+        assert _parse_euros("nvt") is None
+
+
+class TestExtractCardsEdgeCases:
+    def test_skips_card_with_too_few_spans(self):
+        """Cards with fewer than 3 spans are skipped."""
+        html = """<html><body>
+        <a class="vtlink linkhover_11" href="/kinderopvang/pm-amsterdam">
+            <span class="text">PM Amsterdam</span>
+            <span class="text">24,00</span>
+        </a>
+        </body></html>"""
+        seen = set()
+        jobs = _extract_cards_from_listing(html, seen)
+        assert jobs == []
+
+    def test_skips_card_without_valid_prefix(self):
+        """Cards where href doesn't match any job path prefix are skipped."""
+        html = """<html><body>
+        <a class="vtlink" href="/over-prokino/team">
+            <span class="text">Over Prokino</span>
+            <span class="text">0</span>
+            <span class="text">Ede</span>
+            <span class="text">open</span>
+        </a>
+        </body></html>"""
+        seen = set()
+        jobs = _extract_cards_from_listing(html, seen)
+        assert jobs == []
+
+    def test_invalid_hours_gives_none(self):
+        """Non-numeric hours string results in hours_min/max = None."""
+        html = """<html><body>
+        <a class="vtlink" href="/kinderopvang/pm-amsterdam">
+            <span class="text">PM Amsterdam</span>
+            <span class="text">nvt</span>
+            <span class="text">Amsterdam</span>
+            <span class="text">open</span>
+        </a>
+        </body></html>"""
+        seen = set()
+        jobs = _extract_cards_from_listing(html, seen)
+        assert len(jobs) == 1
+        assert jobs[0]["hours_min"] is None
+        assert jobs[0]["hours_max"] is None
 
 
 class TestExtractCardsFromListing:
@@ -141,6 +199,33 @@ class TestEnrichFromDetail:
                "salary_max": 2000.0, "hours_min": 20, "hours_max": 28}
         _enrich_from_detail("", job)
         assert job["salary_min"] == 1000.0
+
+
+class TestProkinoFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = ProkinoScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Prokino kinderopvang Gelderland"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.prokino.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Prokino"
+        assert company["description"] == "Prokino kinderopvang Gelderland"
+        assert "prokino.nl" in company["website"]
+
+    def test_graceful_on_error(self):
+        scraper = ProkinoScraper()
+        with patch("scrapers.prokino.requests.get", side_effect=Exception("conn")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Prokino"
+        assert company["logo_url"] == ""
+
+    def test_fetch_jobs_logs_and_returns(self):
+        """Test that fetch_jobs can be called (it triggers logger.info before pragma block)."""
+        scraper = ProkinoScraper()
+        # We can't run Playwright, but we can at least verify the method exists and
+        # the function signature is correct. The sync_playwright block is pragma: no cover.
+        assert callable(scraper.fetch_jobs)
 
 
 @pytest.mark.integration

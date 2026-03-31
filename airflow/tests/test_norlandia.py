@@ -21,6 +21,7 @@ from scrapers.teamtailor_rss import (
     _parse_rss_items,
     _extract_job_fields,
     _strip_html,
+    _parse_euros,
 )
 from scrapers.norlandia import NorlandiaScraper
 
@@ -68,6 +69,18 @@ RSS_EMPTY = """<?xml version="1.0" encoding="UTF-8"?>
 </rss>"""
 
 RSS_BROKEN = "THIS IS NOT XML <<<"
+
+RSS_NO_CHANNEL = """<?xml version="1.0"?><root><item><title>X</title></item></root>"""
+
+
+# ── _parse_euros ──────────────────────────────────────────────────────────────
+
+class TestParseEuros:
+    def test_dutch_format(self):
+        assert _parse_euros("2.500") == 2500.0
+
+    def test_invalid_returns_none(self):
+        assert _parse_euros("onbekend") is None
 
 
 # ── _strip_html ─────────────────────────────────────────────────────────────
@@ -121,6 +134,11 @@ class TestParseRssItems:
         items = _parse_rss_items(RSS_TWO_ITEMS)
         locatiemanager = next(i for i in items if i["title"] == "Locatiemanager")
         assert locatiemanager["categories"] == []
+
+    def test_no_channel_element_returns_empty(self):
+        """RSS without <channel> element returns empty list."""
+        items = _parse_rss_items(RSS_NO_CHANNEL)
+        assert items == []
 
     def test_guid_falls_back_to_link(self):
         rss = """<?xml version="1.0"?>
@@ -228,6 +246,25 @@ class TestNorlandiaScraperFetchJobs:
     def test_rss_url_correct(self):
         assert "norlandia.nl" in NorlandiaScraper.rss_url
         assert NorlandiaScraper.rss_url.endswith(".rss")
+
+
+class TestNorlandiaFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = NorlandiaScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Norlandia kinderopvang"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.teamtailor_rss.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert "Norlandia" in company["name"]
+        assert company["description"] == "Norlandia kinderopvang"
+
+    def test_graceful_on_error(self):
+        scraper = NorlandiaScraper()
+        with patch("scrapers.teamtailor_rss.requests.get", side_effect=Exception("SSL")):
+            company = scraper.fetch_company()
+        assert "Norlandia" in company["name"]
+        assert company["logo_url"] == ""
 
 
 # ── Integratie tests (echte site, vereist netwerk) ───────────────────────────

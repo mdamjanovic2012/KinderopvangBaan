@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scrapers.gro_up import (
     get_ko_job_urls,
     scrape_job_page,
+    _parse_euros,
     BASE_URL,
     SITEMAP_URL,
 )
@@ -55,6 +56,16 @@ JOB_PAGE_NO_HOURS = """<html><body><main>
   <p>Marktconform salaris • 3042 BZ Amsterdam</p>
   <p>Je geeft leiding aan ons team van 15 medewerkers.</p>
 </main></body></html>"""
+
+
+# ── _parse_euros ──────────────────────────────────────────────────────────────
+
+class TestParseEuros:
+    def test_dutch_format(self):
+        assert _parse_euros("2.641") == 2641.0
+
+    def test_invalid_returns_none(self):
+        assert _parse_euros("marktconform") is None
 
 
 # ── get_ko_job_urls ──────────────────────────────────────────────────────────
@@ -143,6 +154,12 @@ class TestScrapeJobPage:
             job = scrape_job_page(f"{BASE_URL}/pm-kdv")
         assert job is None
 
+    def test_returns_none_when_no_h1(self):
+        no_h1_html = "<html><body><main><p>Pagina niet beschikbaar</p></main></body></html>"
+        with patch("scrapers.gro_up.requests.get", return_value=self._mock_get(no_h1_html)):
+            job = scrape_job_page(f"{BASE_URL}/pm-kdv")
+        assert job is None
+
     def test_description_max_5000(self):
         long_html = f"<html><body><main><h1>PM KDV</h1><p>{'x' * 10_000}</p></main></body></html>"
         with patch("scrapers.gro_up.requests.get", return_value=self._mock_get(long_html)):
@@ -178,6 +195,37 @@ class TestGroUpScraperFetchJobs:
 
     def test_company_slug(self):
         assert GroUpScraper.company_slug == "gro-up"
+
+
+class TestGroUpFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = GroUpScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Gro-up kinderopvang Rotterdam"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.gro_up.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert "Gro-up" in company["name"] or "gro" in company["name"].lower()
+        assert company["description"] == "Gro-up kinderopvang Rotterdam"
+
+    def test_graceful_on_error(self):
+        scraper = GroUpScraper()
+        with patch("scrapers.gro_up.requests.get", side_effect=Exception("SSL")):
+            company = scraper.fetch_company()
+        assert "gro" in company["name"].lower()
+        assert company["logo_url"] == ""
+
+
+class TestGroUpSitemapEdgeCases:
+    def test_skips_url_without_loc(self):
+        """URLs without a loc element are skipped."""
+        xml = """<?xml version="1.0"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url></url>
+          <url><loc>https://www.werkenbijgro-up.nl/pm-kdv-test</loc></url>
+        </urlset>"""
+        urls = get_ko_job_urls(xml)
+        assert len(urls) == 1
 
 
 # ── Integratie tests ──────────────────────────────────────────────────────────
