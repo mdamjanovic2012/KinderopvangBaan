@@ -128,14 +128,15 @@ export default function JobMap({ jobs = [], center }) {
               count={feature.properties.point_count}
               lng={lng} lat={lat}
               onClick={() => {
-                const leaves = supercluster.getLeaves(feature.id, Infinity);
-                const lngs = leaves.map((l) => l.geometry.coordinates[0]);
-                const lats = leaves.map((l) => l.geometry.coordinates[1]);
-                const padding = 80;
-                mapRef.current?.fitBounds?.(
-                  [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-                  { padding, maxZoom: 14, duration: 500 }
+                const expansionZoom = Math.min(
+                  supercluster.getClusterExpansionZoom(feature.id),
+                  20
                 );
+                mapRef.current?.flyTo?.({
+                  center: [lng, lat],
+                  zoom: expansionZoom,
+                  duration: 500,
+                });
               }}
             />
           );
