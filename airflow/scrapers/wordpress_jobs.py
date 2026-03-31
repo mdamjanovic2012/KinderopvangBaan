@@ -77,17 +77,22 @@ def extract_job_posting_jsonld(soup: BeautifulSoup) -> dict | None:
     Geeft ruwe dict of None terug.
     """
     for script in soup.find_all("script", type="application/ld+json"):
-        try:
-            data = json.loads(script.string or "")
-            if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                return data
-            # Soms is het een @graph met meerdere types
-            if isinstance(data, dict) and "@graph" in data:
-                for item in data["@graph"]:
-                    if isinstance(item, dict) and item.get("@type") == "JobPosting":
-                        return item
-        except (json.JSONDecodeError, TypeError):
-            continue
+        raw = script.string or ""
+        # Some sites embed literal control characters inside JSON strings — strip them.
+        for attempt in (raw, re.sub(r"[\x00-\x08\x0a-\x0d\x0e-\x1f]", " ", raw)):
+            try:
+                data = json.loads(attempt)
+                if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                    return data
+                # Handle @graph arrays with multiple types
+                if isinstance(data, dict) and "@graph" in data:
+                    for item in data["@graph"]:
+                        if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                            return item
+                break  # Parsed OK but not a JobPosting — move to next script tag
+            except (json.JSONDecodeError, TypeError):
+                if attempt is raw:
+                    continue  # Try cleaned version
     return None
 
 
