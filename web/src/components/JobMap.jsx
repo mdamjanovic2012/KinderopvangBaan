@@ -5,6 +5,8 @@ import Map, { Marker, Popup, NavigationControl, GeolocateControl } from "react-m
 import Supercluster from "supercluster";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+const SUPERCLUSTER_MAX_ZOOM = 14;
+
 function ClusterMarker({ count, lng, lat, onClick }) {
   const size = Math.min(16 + Math.sqrt(count) * 3, 52);
   return (
@@ -72,8 +74,33 @@ function JobPopup({ job, onClose }) {
   );
 }
 
+function ClusterListPopup({ jobs, lng, lat, onClose }) {
+  return (
+    <Popup longitude={lng} latitude={lat} anchor="top" onClose={onClose}
+      closeButton={true} closeOnClick={false} maxWidth="300px">
+      <div data-testid="cluster-list-popup" className="p-2">
+        <p className="text-xs font-semibold text-gray-500 mb-2">{jobs.length} vacatures op deze locatie</p>
+        <ul className="space-y-1 max-h-64 overflow-y-auto">
+          {jobs.map((job) => (
+            <li key={job.id} className="border-b border-gray-100 pb-1 last:border-0">
+              <a
+                href={`/jobs/${job.id}`}
+                className="block text-xs font-semibold text-blue-700 hover:underline leading-tight"
+              >
+                {job.title}
+              </a>
+              <p className="text-xs text-gray-400">{job.company_name} · {job.city}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Popup>
+  );
+}
+
 export default function JobMap({ jobs = [], center }) {
   const [selectedJob, setSelectedJob] = useState(null);
+  const [clusterList, setClusterList] = useState(null); // { jobs, lng, lat }
   const [viewState, setViewState] = useState({ longitude: 5.2913, latitude: 52.1326, zoom: 7 });
   const mapRef = useRef(null);
 
@@ -86,7 +113,7 @@ export default function JobMap({ jobs = [], center }) {
   const handleMarkerClick = useCallback((job) => setSelectedJob(job), []);
 
   const supercluster = useMemo(() => {
-    const sc = new Supercluster({ radius: 50, maxZoom: 14 });
+    const sc = new Supercluster({ radius: 50, maxZoom: SUPERCLUSTER_MAX_ZOOM });
     sc.load(
       jobs
         .filter((j) => j.location?.coordinates)
@@ -128,15 +155,18 @@ export default function JobMap({ jobs = [], center }) {
               count={feature.properties.point_count}
               lng={lng} lat={lat}
               onClick={() => {
-                const expansionZoom = Math.min(
-                  supercluster.getClusterExpansionZoom(feature.id),
-                  20
-                );
-                mapRef.current?.flyTo?.({
-                  center: [lng, lat],
-                  zoom: expansionZoom,
-                  duration: 500,
-                });
+                const expansionZoom = supercluster.getClusterExpansionZoom(feature.id);
+                if (expansionZoom > SUPERCLUSTER_MAX_ZOOM) {
+                  // All points share the same location — show list popup instead of zooming
+                  const leaves = supercluster.getLeaves(feature.id, Infinity);
+                  setClusterList({ jobs: leaves.map((l) => l.properties.job), lng, lat });
+                } else {
+                  mapRef.current?.flyTo?.({
+                    center: [lng, lat],
+                    zoom: Math.min(expansionZoom, 20),
+                    duration: 500,
+                  });
+                }
               }}
             />
           );
@@ -146,6 +176,14 @@ export default function JobMap({ jobs = [], center }) {
       })}
 
       {selectedJob && <JobPopup job={selectedJob} onClose={() => setSelectedJob(null)} />}
+      {clusterList && (
+        <ClusterListPopup
+          jobs={clusterList.jobs}
+          lng={clusterList.lng}
+          lat={clusterList.lat}
+          onClose={() => setClusterList(null)}
+        />
+      )}
     </Map>
   );
 }

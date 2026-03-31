@@ -132,9 +132,9 @@ describe("JobMap — cluster interaction", () => {
     expect(() => fireEvent.click(screen.getByTestId("map-marker"))).not.toThrow();
   });
 
-  it("cluster click uses getClusterExpansionZoom (not getLeaves+fitBounds)", () => {
+  it("cluster click uses getClusterExpansionZoom (not getLeaves+fitBounds for expandable cluster)", () => {
     // Verifies the fix: cluster click must call getClusterExpansionZoom,
-    // NOT getLeaves+fitBounds (which breaks when all points share same coordinates).
+    // and only call getLeaves when expansionZoom > maxZoom (terminal cluster).
     const expansionZoomSpy = jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom");
     const getLeavesSpy = jest.spyOn(Supercluster.prototype, "getLeaves");
 
@@ -142,6 +142,7 @@ describe("JobMap — cluster interaction", () => {
     render(<JobMap jobs={jobs} />);
     fireEvent.click(screen.getByTestId("map-marker"));
 
+    // expansionZoom = 10 (< maxZoom 14) → should flyTo, not getLeaves
     expect(expansionZoomSpy).toHaveBeenCalled();
     expect(getLeavesSpy).not.toHaveBeenCalled();
 
@@ -153,8 +154,6 @@ describe("JobMap — cluster interaction", () => {
     // getClusterExpansionZoom returns 10 (per mock), flyTo must be called with zoom: 10
     const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
 
-    let capturedFlyTo = null;
-    // Intercept the flyTo call via the map ref
     const flyToSpy = jest.fn();
     jest.spyOn(React, "useImperativeHandle").mockImplementation((ref, init) => {
       if (ref) {
@@ -173,6 +172,50 @@ describe("JobMap — cluster interaction", () => {
     );
 
     React.useImperativeHandle.mockRestore();
+  });
+
+  it("terminal cluster (all same location) shows list popup instead of flyTo", () => {
+    // When expansionZoom > maxZoom (15 > 14), all jobs are at the same point.
+    // Expected: getLeaves called, cluster-list-popup rendered, flyTo NOT called.
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) =>
+      makeJob({ id: i + 1, title: `Job ${i + 1}` })
+    );
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
+  });
+
+  it("terminal cluster popup shows job titles", () => {
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) =>
+      makeJob({ id: i + 1, title: `Vacature ${i + 1}` })
+    );
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    // getLeaves returns all _points; each has properties.job with the title
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
+  });
+
+  it("terminal cluster popup closes on close button click", () => {
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("popup-close"));
+    expect(screen.queryByTestId("cluster-list-popup")).not.toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
   });
 });
 
