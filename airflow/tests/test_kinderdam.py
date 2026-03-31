@@ -13,6 +13,7 @@ Integratie tests (mark=integration): echte site via Playwright.
 import sys
 import os
 import pytest
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -26,6 +27,7 @@ from scrapers.kinderdam import (
     BANNER_CONTENT_ID,
     BASE_URL,
     JOBS_URL,
+    KinderdamScraper,
 )
 
 
@@ -224,6 +226,16 @@ class TestExtractCardsFromRegioPage:
         assert len(jobs) == 1
         assert "pm" in jobs[0]["source_url"]
 
+    def test_card_with_empty_title_is_skipped(self):
+        """Cards where all span.text are empty should be skipped."""
+        card = f"""<a class="vtlink border_5" href="/vacaturebeschrijving-kinderdam/pm">
+            <span class="text">  </span>
+            <span class="text">  </span>
+        </a>"""
+        html = f"<html><body>{card}</body></html>"
+        jobs = _extract_cards_from_regio_page(html)
+        assert jobs == []
+
     def test_no_hours_gives_none(self):
         card = f"""<a class="vtlink border_5" href="/vacaturebeschrijving-kinderdam/pm">
             <span class="text">PM BSO</span>
@@ -265,6 +277,28 @@ class TestExtractDescription:
     def test_max_5000_chars(self):
         html = f"<html><body><article>{'x' * 10_000}</article></body></html>"
         assert len(_extract_description_from_html(html)) <= 5000
+
+
+# ── KinderdamScraper.fetch_company ───────────────────────────────────────────────
+
+class TestKinderdamFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = KinderdamScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Kinderdam kinderopvang Rotterdam"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.kinderdam.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kinderdam"
+        assert company["description"] == "Kinderdam kinderopvang Rotterdam"
+        assert BASE_URL in company["website"]
+
+    def test_graceful_on_request_error(self):
+        scraper = KinderdamScraper()
+        with patch("scrapers.kinderdam.requests.get", side_effect=Exception("timeout")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kinderdam"
+        assert company["logo_url"] == ""
 
 
 # ── Integratie tests (echte site, vereist netwerk + Playwright) ───────────────────

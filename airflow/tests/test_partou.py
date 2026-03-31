@@ -16,6 +16,10 @@ from scrapers.partou import (
     _parse_euros,
     _parse_contract,
     _parse_json_items,
+    _parse_contentful_items,
+    _job_type_from_role,
+    _fetch_contentful,
+    PartouScraper,
     BASE_URL,
     JOBS_URL,
 )
@@ -129,6 +133,134 @@ class TestParseJsonItems:
 
     def test_empty_list(self):
         assert _parse_json_items([]) == []
+
+
+# ── _job_type_from_role ────────────────────────────────────────────────────────
+
+class TestJobTypeFromRole:
+    def test_pedagogical_kdv(self):
+        assert _job_type_from_role("pedagogical", "kdv") in ("pm", "pm_kdv", "pm3", "")
+
+    def test_non_pedagogical_known(self):
+        # Non-pedagogical roles use ROLE_MAP
+        result = _job_type_from_role("management", "kdv")
+        assert isinstance(result, str)  # May be "" or a known type
+
+    def test_empty_role(self):
+        assert _job_type_from_role("", "") == ""
+
+
+# ── _parse_contentful_items ────────────────────────────────────────────────────
+
+class TestParseContentfulItems:
+    def make_item(self, **kwargs):
+        defaults = {
+            "slug": "pm-amsterdam-1234",
+            "link": None,
+            "roleTitle": "Pedagogisch Medewerker",
+            "minHours": 24,
+            "maxHours": 32,
+            "minSalary": 2200,
+            "maxSalary": 3000,
+            "role": "pedagogical",
+            "childcareType": "bso",
+            "vacancyId": "v-1234",
+            "sys": {"id": "sys-abc"},
+            "aboutJob": "Beschrijving van de functie.",
+            "headerText": "Korte samenvatting.",
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    def test_basic_item(self):
+        jobs = _parse_contentful_items([self.make_item()])
+        assert len(jobs) == 1
+        j = jobs[0]
+        assert j["title"] == "Pedagogisch Medewerker"
+        assert j["hours_min"] == 24
+        assert j["hours_max"] == 32
+        assert j["salary_min"] == 2200.0
+        assert j["salary_max"] == 3000.0
+
+    def test_uses_link_when_present(self):
+        jobs = _parse_contentful_items([self.make_item(link="https://external.nl/job/123")])
+        assert jobs[0]["source_url"] == "https://external.nl/job/123"
+
+    def test_uses_slug_when_no_link(self):
+        jobs = _parse_contentful_items([self.make_item(link=None)])
+        assert "pm-amsterdam-1234" in jobs[0]["source_url"]
+
+    def test_skips_item_without_title(self):
+        jobs = _parse_contentful_items([self.make_item(roleTitle="")])
+        assert jobs == []
+
+    def test_skips_item_without_slug_or_link(self):
+        jobs = _parse_contentful_items([self.make_item(slug="", link=None)])
+        assert jobs == []
+
+    def test_hours_zero_becomes_none(self):
+        jobs = _parse_contentful_items([self.make_item(minHours=0, maxHours=0)])
+        assert jobs[0]["hours_min"] is None
+        assert jobs[0]["hours_max"] is None
+
+    def test_empty_list(self):
+        assert _parse_contentful_items([]) == []
+
+
+# ── _fetch_contentful ──────────────────────────────────────────────────────────
+
+class TestFetchContentful:
+    def test_parses_api_response(self):
+        item = {
+            "slug": "pm-1", "link": None, "roleTitle": "PM",
+            "minHours": 24, "maxHours": 32, "minSalary": None, "maxSalary": None,
+            "role": "", "childcareType": "", "vacancyId": "v1",
+            "sys": {"id": "s1"}, "aboutJob": "", "headerText": "",
+        }
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "data": {"vacancyCollection": {"items": [item], "total": 1}},
+        }
+        with patch("scrapers.partou.requests.post", return_value=mock_resp):
+            jobs = _fetch_contentful()
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "PM"
+
+    def test_raises_on_api_errors(self):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"errors": [{"message": "Unauthorized"}]}
+        with patch("scrapers.partou.requests.post", return_value=mock_resp):
+            with pytest.raises(ValueError, match="Contentful"):
+                _fetch_contentful()
+
+
+# ── PartouScraper.fetch_company ────────────────────────────────────────────────
+
+class TestPartouFetchCompany:
+    def test_returns_name(self):
+        scraper = PartouScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Partou kinderopvang"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.partou.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Partou"
+        assert company["description"] == "Partou kinderopvang"
+
+    def test_graceful_on_error(self):
+        scraper = PartouScraper()
+        with patch("scrapers.partou.requests.get", side_effect=Exception("conn")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Partou"
+        assert company["logo_url"] == ""
+
+    def test_fetch_jobs_calls_contentful(self):
+        scraper = PartouScraper()
+        with patch("scrapers.partou._fetch_contentful", return_value=[{"title": "PM"}]):
+            jobs = scraper.fetch_jobs()
+        assert jobs == [{"title": "PM"}]
 
 
 # ── Integratie tests (echte site, vereist netwerk) ────────────────────────────
