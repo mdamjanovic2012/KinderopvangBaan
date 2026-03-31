@@ -223,6 +223,11 @@ class TestParseContentfulItems:
             "link": None,
             "roleTitle": "Pedagogisch Medewerker",
             "city": "Amsterdam",
+            "address": "",
+            "postalCode": "",
+            "latitude": None,
+            "longitude": None,
+            "oeNumber": None,
             "minHours": 24,
             "maxHours": 32,
             "minSalary": 2200,
@@ -251,21 +256,33 @@ class TestParseContentfulItems:
         jobs = _parse_contentful_items([self.make_item(city="Utrecht")])
         assert jobs[0]["city"] == "Utrecht"
 
-    def test_location_name_uses_title_street(self):
+    def test_uses_address_and_postcode_from_contentful(self):
+        item = self.make_item(city="Utrecht", address="Bolstraat 5", postalCode="3512GJ")
+        jobs = _parse_contentful_items([item])
+        assert jobs[0]["postcode"] == "3512GJ"
+        assert "Bolstraat 5" in jobs[0]["location_name"]
+        assert "Utrecht" in jobs[0]["location_name"]
+
+    def test_uses_postcode_only_when_no_address(self):
+        item = self.make_item(city="Amsterdam", address="", postalCode="1012AB")
+        jobs = _parse_contentful_items([item])
+        assert jobs[0]["postcode"] == "1012AB"
+        assert "1012AB" in jobs[0]["location_name"]
+
+    def test_location_name_falls_back_to_title_extraction(self):
+        # No address or postcode from Contentful → use title extraction
         item = self.make_item(
             roleTitle="Pedagogisch Medewerker | BSO Bolstraat Utrecht",
             city="Utrecht",
+            address="",
+            postalCode="",
         )
         jobs = _parse_contentful_items([item])
-        # location_name should be more specific than just "Utrecht"
-        assert jobs[0]["location_name"] != "Utrecht" or "Bolstraat" in jobs[0]["location_name"]
         assert "Utrecht" in jobs[0]["location_name"]
 
     def test_location_name_falls_back_to_city(self):
-        item = self.make_item(
-            roleTitle="Pedagogisch Medewerker",
-            city="Amsterdam",
-        )
+        item = self.make_item(roleTitle="Pedagogisch Medewerker", city="Amsterdam",
+                              address="", postalCode="")
         jobs = _parse_contentful_items([item])
         assert "Amsterdam" in jobs[0]["location_name"]
 
@@ -341,6 +358,29 @@ class TestFetchDetailAddress:
             result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/pm")
         assert result is None
 
+    def test_extracts_from_next_data(self):
+        import json as _json
+        next_data = {"props": {"pageProps": {"vacancy": {"postcode": "1012AB Amsterdam"}}}}
+        html = f"""<html><body>
+        <script id="__NEXT_DATA__">{_json.dumps(next_data)}</script>
+        </body></html>"""
+        with patch("scrapers.partou.requests.get", return_value=self._mock_resp(html)):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/test")
+        assert result is not None
+        assert result["postcode"] == "1012AB"
+
+    def test_graph_jsonld_supported(self):
+        html = """<html><head>
+        <script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+        {"@type":"JobPosting","jobLocation":{"@type":"Place",
+        "address":{"streetAddress":"Teststraat 1","postalCode":"2000AA","addressLocality":"Haarlem"}}}
+        ]}</script></head><body></body></html>"""
+        with patch("scrapers.partou.requests.get", return_value=self._mock_resp(html)):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/test2")
+        assert result is not None
+        assert result["city"] == "Haarlem"
+        assert result["postcode"] == "2000AA"
+
 
 # ── _fetch_contentful ──────────────────────────────────────────────────────────
 
@@ -393,9 +433,17 @@ class TestPartouFetchCompany:
 
     def test_fetch_jobs_calls_contentful(self):
         scraper = PartouScraper()
-        with patch("scrapers.partou._fetch_contentful", return_value=[{"title": "PM"}]):
+        with patch("scrapers.partou._fetch_contentful", return_value=[]):
             jobs = scraper.fetch_jobs()
-        assert jobs == [{"title": "PM"}]
+        assert jobs == []
+
+    def test_fetch_jobs_returns_contentful_jobs(self):
+        scraper = PartouScraper()
+        job = {"title": "PM BSO", "postcode": "3512GJ", "location_name": "Bolstraat 5, 3512GJ Utrecht"}
+        with patch("scrapers.partou._fetch_contentful", return_value=[job]):
+            jobs = scraper.fetch_jobs()
+        assert jobs[0]["postcode"] == "3512GJ"
+        assert "Bolstraat 5" in jobs[0]["location_name"]
 
 
 # ── Integratie tests (echte site, vereist netwerk) ────────────────────────────

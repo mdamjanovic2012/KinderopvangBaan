@@ -10,7 +10,6 @@ Geen Playwright nodig: directe HTTP-calls naar de Contentful API.
 import json
 import logging
 import re
-import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -38,6 +37,11 @@ CONTENTFUL_QUERY = """
       roleTitle
       role
       city
+      address
+      postalCode
+      latitude
+      longitude
+      oeNumber
       slug
       minHours
       maxHours
@@ -49,6 +53,22 @@ CONTENTFUL_QUERY = """
       headerText
       link
       vacancyId
+    }
+  }
+}
+"""
+
+# Contentful query for unique facility addresses (used by branch scraper)
+CONTENTFUL_LOCATIONS_QUERY = """
+{
+  vacancyCollection(limit: 1000, skip: 0) {
+    items {
+      oeNumber
+      address
+      postalCode
+      city
+      latitude
+      longitude
     }
   }
 }
@@ -248,16 +268,31 @@ def _parse_contentful_items(items: list) -> list[dict]:
         description  = item.get("aboutJob") or ""
         short_desc   = item.get("headerText") or ""
 
-        city = item.get("city") or ""
+        city     = item.get("city") or ""
+        address  = (item.get("address") or "").strip()
+        postcode = (item.get("postalCode") or "").replace(" ", "").strip()
+
+        # Build location_name from most precise available data:
+        # 1. Contentful address field (e.g. "Bolstraat 5, Rotterdam")
+        # 2. Contentful postalCode + city
+        # 3. Fallback: title extraction (kept for pool/flex vacancies without address)
+        if address and city:
+            location_name = f"{address}, {postcode} {city}".strip(", ").strip() if postcode \
+                else f"{address}, {city}"
+        elif postcode and city:
+            location_name = f"{postcode} {city}"
+        else:
+            location_name = _extract_location_from_title(title, city)
+
         jobs.append({
             "source_url":        source_url,
             "external_id":       external_id,
             "title":             title,
             "short_description": short_desc[:500] if short_desc else "",
             "description":       description,
-            "location_name":     _extract_location_from_title(title, city),
+            "location_name":     location_name,
             "city":              city,
-            "postcode":          "",
+            "postcode":          postcode,
             "hours_min":         hours_min,
             "hours_max":         hours_max,
             "salary_min":        float(salary_min) if salary_min else None,
@@ -422,24 +457,6 @@ class PartouScraper(BaseScraper):
         }
 
     def fetch_jobs(self) -> list[dict]:
-        jobs = _fetch_contentful()
-
-        # Enrich each job with precise address from the detail page.
-        # The Contentful API only returns city; the rendered detail page
-        # contains the full address (street, postcode) in JSON-LD or HTML.
-        enriched = 0
-        for job in jobs:
-            url = job.get("source_url", "")
-            if not url:
-                continue
-            addr = _fetch_detail_address(url)
-            if addr and addr.get("postcode"):
-                job["postcode"] = addr["postcode"]
-                job["location_name"] = addr["location_name"]
-                if addr.get("city"):
-                    job["city"] = addr["city"]
-                enriched += 1
-            time.sleep(0.3)  # polite rate limiting
-
-        logger.info(f"[partou] Detail page enrichment: {enriched}/{len(jobs)} jobs with precise address")
-        return jobs
+        # Contentful API now returns address, postalCode, latitude, longitude directly
+        # — no need to scrape individual detail pages.
+        return _fetch_contentful()

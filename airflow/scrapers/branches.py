@@ -237,73 +237,60 @@ def _parse_address_block(text: str) -> tuple[str, str, str]:
 
 def scrape_partou_vestigingen() -> list[dict]:
     """
-    Scrape Partou branches from partou.nl.
-    Partou uses a React/Next.js website with a location finder.
-    Tries JSON-LD structured data first, falls back to HTML card scraping.
+    Fetch all unique Partou facility addresses from the Contentful API.
+
+    The vacancyCollection contains address, postalCode, city, and oeNumber
+    (facility ID from the Dutch Care Registry). We deduplicate by oeNumber
+    to get one entry per physical location (~378 unique facilities).
     """
-    locations = []
-    BASE = "https://www.partou.nl"
+    import json as _json
+    from scrapers.partou import (
+        CONTENTFUL_ENDPOINT, CONTENTFUL_TOKEN, CONTENTFUL_LOCATIONS_QUERY,
+    )
 
-    # Try known branch overview paths
-    for path in ["/kinderopvang/vestigingen", "/vestigingen", "/locaties"]:
-        url = BASE + path
-        try:
-            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
-            if resp.status_code != 200:
-                continue
+    headers = {
+        "Authorization": f"Bearer {CONTENTFUL_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.post(
+            CONTENTFUL_ENDPOINT,
+            json={"query": CONTENTFUL_LOCATIONS_QUERY},
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.error(f"[partou-branches] Contentful API failed: {exc}")
+        return []
 
-            soup = BeautifulSoup(resp.text, "lxml")
+    items = data.get("data", {}).get("vacancyCollection", {}).get("items", [])
 
-            # Schema.org LocalBusiness / ChildCare
-            for ld in soup.find_all("script", type="application/ld+json"):
-                import json
-                try:
-                    data = json.loads(ld.string or "")
-                    if isinstance(data, list):
-                        data = data
-                    else:
-                        data = [data]
-                    for item in data:
-                        if item.get("@type") in ("ChildCare", "LocalBusiness", "Organization"):
-                            addr = item.get("address", {})
-                            name = item.get("name", "")
-                            street = addr.get("streetAddress", "")
-                            postcode = addr.get("postalCode", "").replace(" ", "")
-                            city = addr.get("addressLocality", "")
-                            if name and city:
-                                locations.append({
-                                    "name": name,
-                                    "street": street,
-                                    "postcode": postcode,
-                                    "city": city,
-                                })
-                except Exception:
-                    pass
+    # Deduplicate by oeNumber (facility ID); fall back to address string
+    seen: dict[str, dict] = {}
+    for item in items:
+        address  = (item.get("address") or "").strip()
+        postcode = (item.get("postalCode") or "").replace(" ", "").strip()
+        city     = (item.get("city") or "").strip()
+        oe       = str(item.get("oeNumber") or "")
 
-            # HTML fallback: look for address cards
-            if not locations:
-                for card in soup.select("[class*='location'], [class*='vestiging'], [class*='locatie']"):
-                    name_el = card.select_one("h2, h3, h4, [class*='title'], [class*='name']")
-                    name = name_el.get_text(strip=True) if name_el else ""
-                    addr_el = card.select_one("[class*='address'], address, p")
-                    if name and addr_el:
-                        street, postcode, city = _parse_address_block(addr_el.get_text())
-                        if city:
-                            locations.append({
-                                "name": name,
-                                "street": street,
-                                "postcode": postcode,
-                                "city": city,
-                            })
+        if not city or not (address or postcode):
+            continue
 
-            if locations:
-                logger.info(f"[partou-branches] {len(locations)} locations found at {url}")
-                return locations
+        key = oe if oe else f"{address}|{postcode}|{city}"
+        if key not in seen:
+            # Name = address string (used for matching in match_vestiging)
+            name = f"{address}, {city}" if address else f"{postcode} {city}"
+            seen[key] = {
+                "name":     name,
+                "street":   address,
+                "postcode": postcode,
+                "city":     city,
+            }
 
-        except Exception as exc:
-            logger.warning(f"[partou-branches] {url} failed: {exc}")
-
-    logger.warning("[partou-branches] No locations found")
+    locations = list(seen.values())
+    logger.info(f"[partou-branches] {len(locations)} unique facilities from Contentful")
     return locations
 
 
