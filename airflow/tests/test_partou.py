@@ -20,6 +20,7 @@ from scrapers.partou import (
     _job_type_from_role,
     _fetch_contentful,
     _extract_location_from_title,
+    _fetch_detail_address,
     PartouScraper,
     BASE_URL,
     JOBS_URL,
@@ -291,6 +292,54 @@ class TestParseContentfulItems:
 
     def test_empty_list(self):
         assert _parse_contentful_items([]) == []
+
+
+# ── _fetch_detail_address ─────────────────────────────────────────────────────
+
+_DETAIL_JSONLD_HTML = """<html><head>
+<script type="application/ld+json">{"@type":"JobPosting","jobLocation":{"@type":"Place",
+"address":{"@type":"PostalAddress","streetAddress":"Bolstraat 5",
+"postalCode":"3512GJ","addressLocality":"Utrecht"}}}</script>
+</head><body><h1>PM BSO</h1></body></html>"""
+
+_DETAIL_POSTCODE_HTML = """<html><body>
+<p>Locatie: Kanaalweg 94B, 3531CJ Utrecht</p>
+</body></html>"""
+
+_DETAIL_NO_ADDRESS_HTML = """<html><body><h1>Flexpool Amsterdam</h1></body></html>"""
+
+
+class TestFetchDetailAddress:
+    def _mock_resp(self, html):
+        resp = MagicMock()
+        resp.text = html
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_extracts_full_address_from_jsonld(self):
+        with patch("scrapers.partou.requests.get", return_value=self._mock_resp(_DETAIL_JSONLD_HTML)):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/pm-bso")
+        assert result is not None
+        assert result["street"] == "Bolstraat 5"
+        assert result["postcode"] == "3512GJ"
+        assert result["city"] == "Utrecht"
+        assert "Bolstraat 5" in result["location_name"]
+
+    def test_extracts_postcode_from_page_text(self):
+        with patch("scrapers.partou.requests.get", return_value=self._mock_resp(_DETAIL_POSTCODE_HTML)):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/pm-kdv")
+        assert result is not None
+        assert result["postcode"] == "3531CJ"
+
+    def test_returns_none_when_no_address(self):
+        with patch("scrapers.partou.requests.get", return_value=self._mock_resp(_DETAIL_NO_ADDRESS_HTML)):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/flexpool")
+        assert result is None
+
+    def test_returns_none_on_request_error(self):
+        with patch("scrapers.partou.requests.get", side_effect=Exception("timeout")):
+            result = _fetch_detail_address("https://werkenbijpartou.nl/vacatures/pm")
+        assert result is None
 
 
 # ── _fetch_contentful ──────────────────────────────────────────────────────────

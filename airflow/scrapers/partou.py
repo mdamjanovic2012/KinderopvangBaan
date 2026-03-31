@@ -7,12 +7,16 @@ Vacatures worden opgehaald via de Contentful GraphQL API.
 Geen Playwright nodig: directe HTTP-calls naar de Contentful API.
 """
 
+import json
 import logging
 import re
+import time
 
 import requests
+from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper, SCRAPER_HEADERS
+from scrapers.branches import POSTCODE_RE
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +297,94 @@ def _fetch_contentful() -> list[dict]:
     return _parse_contentful_items(items)
 
 
+def _fetch_detail_address(url: str) -> dict | None:
+    """
+    Fetch a Partou job detail page and extract the full address.
+
+    Tries in order:
+    1. schema.org JobPosting JSON-LD  → street, postcode, city
+    2. Next.js __NEXT_DATA__ embedded JSON
+    3. Address pattern in page text (postcode regex)
+
+    Returns {street, postcode, city, location_name} or None.
+    """
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.debug(f"[partou] Detail page failed {url}: {exc}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    # 1. JSON-LD JobPosting
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            if isinstance(data, dict) and "@graph" in data:
+                data = next(
+                    (item for item in data["@graph"] if item.get("@type") == "JobPosting"),
+                    None,
+                ) or {}
+            if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                locs = data.get("jobLocation", [])
+                if isinstance(locs, dict):
+                    locs = [locs]
+                for loc in locs:
+                    addr = loc.get("address", {})
+                    street = addr.get("streetAddress", "").strip()
+                    postcode = addr.get("postalCode", "").replace(" ", "").strip()
+                    city = addr.get("addressLocality", "").strip()
+                    if city:
+                        if street and postcode:
+                            loc_name = f"{street}, {postcode} {city}"
+                        elif postcode:
+                            loc_name = f"{postcode} {city}"
+                        else:
+                            loc_name = city
+                        return {"street": street, "postcode": postcode,
+                                "city": city, "location_name": loc_name}
+        except Exception:
+            pass
+
+    # 2. Next.js __NEXT_DATA__ embedded JSON
+    next_data_tag = soup.find("script", id="__NEXT_DATA__")
+    if next_data_tag:
+        try:
+            next_data = json.loads(next_data_tag.string or "")
+            # Walk the props tree looking for address-like keys
+            raw = json.dumps(next_data)
+            pc_m = POSTCODE_RE.search(raw)
+            if pc_m:
+                postcode = pc_m.group(1).replace(" ", "")
+                # Try to find city after postcode in the JSON string
+                after = raw[pc_m.end():pc_m.end() + 60]
+                city_m = re.search(r'["\s,]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,30}?)["\\,]', after)
+                city = city_m.group(1).strip() if city_m else ""
+                if city:
+                    return {"street": "", "postcode": postcode,
+                            "city": city, "location_name": f"{postcode} {city}"}
+        except Exception:
+            pass
+
+    # 3. Postcode pattern in rendered page text
+    text = soup.get_text(separator=" ", strip=True)
+    pc_m = POSTCODE_RE.search(text)
+    if pc_m:
+        postcode = pc_m.group(1).replace(" ", "")
+        after = text[pc_m.end():pc_m.end() + 80]
+        city_m = re.match(
+            r"\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,35}?)(?:\s{2,}|[•·\n,]|$)",
+            after,
+        )
+        city = city_m.group(1).strip() if city_m else ""
+        if city:
+            return {"street": "", "postcode": postcode,
+                    "city": city, "location_name": f"{postcode} {city}"}
+
+    return None
+
+
 class PartouScraper(BaseScraper):
     company_slug = "partou"
 
@@ -330,4 +422,24 @@ class PartouScraper(BaseScraper):
         }
 
     def fetch_jobs(self) -> list[dict]:
-        return _fetch_contentful()
+        jobs = _fetch_contentful()
+
+        # Enrich each job with precise address from the detail page.
+        # The Contentful API only returns city; the rendered detail page
+        # contains the full address (street, postcode) in JSON-LD or HTML.
+        enriched = 0
+        for job in jobs:
+            url = job.get("source_url", "")
+            if not url:
+                continue
+            addr = _fetch_detail_address(url)
+            if addr and addr.get("postcode"):
+                job["postcode"] = addr["postcode"]
+                job["location_name"] = addr["location_name"]
+                if addr.get("city"):
+                    job["city"] = addr["city"]
+                enriched += 1
+            time.sleep(0.3)  # polite rate limiting
+
+        logger.info(f"[partou] Detail page enrichment: {enriched}/{len(jobs)} jobs with precise address")
+        return jobs
