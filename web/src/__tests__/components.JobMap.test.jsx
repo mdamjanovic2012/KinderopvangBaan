@@ -2,8 +2,9 @@
  * Tests for src/components/JobMap.jsx
  */
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import JobMap from "@/components/JobMap";
+import Supercluster from "supercluster";
 
 const makeJob = (overrides = {}) => ({
   id: 1,
@@ -129,6 +130,49 @@ describe("JobMap — cluster interaction", () => {
     const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
     render(<JobMap jobs={jobs} />);
     expect(() => fireEvent.click(screen.getByTestId("map-marker"))).not.toThrow();
+  });
+
+  it("cluster click uses getClusterExpansionZoom (not getLeaves+fitBounds)", () => {
+    // Verifies the fix: cluster click must call getClusterExpansionZoom,
+    // NOT getLeaves+fitBounds (which breaks when all points share same coordinates).
+    const expansionZoomSpy = jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom");
+    const getLeavesSpy = jest.spyOn(Supercluster.prototype, "getLeaves");
+
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    expect(expansionZoomSpy).toHaveBeenCalled();
+    expect(getLeavesSpy).not.toHaveBeenCalled();
+
+    expansionZoomSpy.mockRestore();
+    getLeavesSpy.mockRestore();
+  });
+
+  it("cluster click calls flyTo with correct zoom from getClusterExpansionZoom", () => {
+    // getClusterExpansionZoom returns 10 (per mock), flyTo must be called with zoom: 10
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+
+    let capturedFlyTo = null;
+    // Intercept the flyTo call via the map ref
+    const flyToSpy = jest.fn();
+    jest.spyOn(React, "useImperativeHandle").mockImplementation((ref, init) => {
+      if (ref) {
+        const handle = init();
+        handle.flyTo = flyToSpy;
+        ref.current = handle;
+      }
+    });
+
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    // flyTo should have been called with zoom capped at min(10, 20) = 10
+    expect(flyToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ zoom: 10 })
+    );
+
+    React.useImperativeHandle.mockRestore();
   });
 });
 
