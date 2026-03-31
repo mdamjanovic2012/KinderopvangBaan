@@ -334,6 +334,26 @@ class TestBaseScrapeRun:
         insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO jobs_job" in str(c)]
         assert len(insert_calls) == 1
 
+    def test_run_uses_job_postcode_when_geo_has_none(self):
+        """Postcode from scraper is used as fallback when geocoding returns no postcode."""
+        scraper = JobScraper()
+        conn, cur = _make_conn(current_urls=set())
+        # Geo returns no postcode (e.g. PDOK failed to match)
+        geo_cache = {"Amsterdam": {"city": "Amsterdam", "postcode": "",
+                                   "lon": 4.895, "lat": 52.370, "municipality": "Amsterdam"}}
+
+        with patch("scrapers.base.get_connection", return_value=conn):
+            with patch("scrapers.base.geocode_locations", return_value=geo_cache):
+                with patch("scrapers.branches.match_vestiging", return_value=None):
+                    result = scraper.run()
+
+        assert result["inserted"] == 1
+        insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO jobs_job" in str(c)]
+        assert len(insert_calls) == 1
+        # JobScraper.fetch_jobs returns postcode="1012AB" — should be in INSERT params
+        insert_sql = str(insert_calls[0])
+        assert "1012AB" in insert_sql
+
 
 # ── BaseScraper abstract methods ──────────────────────────────────────────────
 

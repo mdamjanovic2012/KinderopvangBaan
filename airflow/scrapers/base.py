@@ -293,7 +293,7 @@ class BaseScraper:
                     loc_name = job.get("location_name", "")
                     geo = geo_cache.get(loc_name, {})
                     city = geo.get("city") or job.get("city", "")
-                    postcode = geo.get("postcode", "")
+                    postcode = geo.get("postcode") or job.get("postcode", "")
                     lon = geo.get("lon")
                     lat = geo.get("lat")
 
