@@ -261,7 +261,8 @@ class TestBaseScrapeRun:
 
         with patch("scrapers.base.get_connection", return_value=conn):
             with patch("scrapers.base.geocode_locations", return_value={}):
-                result = scraper.run()
+                with patch("scrapers.vestigingen.match_vestiging", return_value=None):
+                    result = scraper.run()
 
         assert result["inserted"] == 1
         assert result["updated"] == 0
@@ -274,7 +275,8 @@ class TestBaseScrapeRun:
 
         with patch("scrapers.base.get_connection", return_value=conn):
             with patch("scrapers.base.geocode_locations", return_value={}):
-                result = scraper.run()
+                with patch("scrapers.vestigingen.match_vestiging", return_value=None):
+                    result = scraper.run()
 
         assert result["updated"] == 1
         assert result["inserted"] == 0
@@ -286,7 +288,8 @@ class TestBaseScrapeRun:
 
         with patch("scrapers.base.get_connection", return_value=conn):
             with patch("scrapers.base.geocode_locations", return_value={}):
-                result = scraper.run()
+                with patch("scrapers.vestigingen.match_vestiging", return_value=None):
+                    result = scraper.run()
 
         assert result["expired"] == 1
         expire_calls = [c for c in cur.execute.call_args_list
@@ -302,8 +305,9 @@ class TestBaseScrapeRun:
 
         with patch("scrapers.base.get_connection", return_value=conn):
             with patch("scrapers.base.geocode_locations", return_value={}):
-                with pytest.raises(ValueError, match="VEILIGHEID"):
-                    scraper.run()
+                with patch("scrapers.vestigingen.match_vestiging", return_value=None):
+                    with pytest.raises(ValueError, match="VEILIGHEID"):
+                        scraper.run()
 
     def test_run_closes_connection_on_error(self):
         scraper = JobScraper()

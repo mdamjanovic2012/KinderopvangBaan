@@ -30,10 +30,16 @@ BASE_URL    = "https://www.werkenbijgro-up.nl"
 SITEMAP_URL = f"{BASE_URL}/sitemap.xml"
 JOBS_URL    = f"{BASE_URL}/kinderopvang/vacatures/"
 
-HOURS_RE   = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
-SALARY_RE  = re.compile(r"€\s*([\d.,]+)\s*(?:tot|[-–])\s*€?\s*([\d.,]+)", re.I)
-CITY_RE    = re.compile(r"\d{4}\s*[A-Z]{2}\s+([A-Za-zÀ-ÿ\s\-]+?)(?:\s*•|\s*$)", re.I)
+HOURS_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
+SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*(?:tot|[-–])\s*€?\s*([\d.,]+)", re.I)
+CITY_RE     = re.compile(r"\d{4}\s*[A-Z]{2}\s+([A-Za-zÀ-ÿ\s\-]+?)(?:\s*•|\s*$)", re.I)
 POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+# Matches "Straatnaam 45" or "Straatnaam 45a" immediately before a postcode
+STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
 
 # Trefwoorden die een URL identificeren als kinderopvang
 KO_KEYWORDS = (
@@ -129,25 +135,37 @@ def scrape_job_page(url: str) -> dict | None:
         salary_min = _parse_euros(sm.group(1))
         salary_max = _parse_euros(sm.group(2))
 
-    # Postcode + stad
-    city = postcode = ""
+    # Straat + postcode + stad
+    city = postcode = street = ""
     pc_m = POSTCODE_RE.search(text)
     if pc_m:
         postcode = pc_m.group(1).replace(" ", "")
         # Zoek stad na postcode
         after = text[pc_m.end():pc_m.end() + 80]
-        # Stad staat direct na de postcode, eindigt bij bullet, newline of nieuw zin (hfLetter + kleine)
         city_m = re.match(
             r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,40}?)(?:\s*[•·\n]|\s{2,}|\s+[A-Z][a-z]|\s*$)",
             after,
         )
         if city_m:
             city = city_m.group(1).strip()
+        # Zoek straatnaam + huisnummer voor de postcode
+        before = text[max(0, pc_m.start() - 100):pc_m.start()]
+        st_m = STREET_RE.search(before + " " + pc_m.group(1))
+        if st_m:
+            street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
 
     # Beschrijving (eerste 5000 tekens van main)
     desc = text[:5000] if text else ""
 
     external_id = url.rstrip("/").split("/")[-1]
+
+    # Compose best location query for PDOK geocoding
+    if street and city:
+        location_name = f"{street}, {postcode} {city}".strip(", ").strip()
+    elif postcode and city:
+        location_name = f"{postcode} {city}"
+    else:
+        location_name = city or ""
 
     return {
         "source_url":        url,
@@ -155,7 +173,7 @@ def scrape_job_page(url: str) -> dict | None:
         "title":             title,
         "short_description": desc[:300],
         "description":       desc,
-        "location_name":     city or "",
+        "location_name":     location_name,
         "city":              city,
         "postcode":          postcode,
         "salary_min":        salary_min,

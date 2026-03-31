@@ -103,7 +103,7 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
     title = jsonld.get("title", "").strip()
 
     # Locatie (eerste jobLocation)
-    city = postcode = ""
+    city = postcode = street = ""
     locations = jsonld.get("jobLocation", [])
     if isinstance(locations, dict):
         locations = [locations]
@@ -112,6 +112,7 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
         locality = addr.get("addressLocality", "")
         city = (locality if isinstance(locality, str) else locality.get("name", "") if isinstance(locality, dict) else "").strip()
         postcode = addr.get("postalCode", "").replace(" ", "").strip()
+        street = addr.get("streetAddress", "").strip()
 
     # Salaris
     salary_min = salary_max = None
@@ -148,13 +149,21 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
     if not external_id:
         external_id = url.rstrip("/").split("/")[-1]
 
+    # Compose best location query for PDOK geocoding
+    if street and city:
+        location_name = f"{street}, {postcode} {city}".strip(", ").strip()
+    elif postcode and city:
+        location_name = f"{postcode} {city}"
+    else:
+        location_name = city
+
     return {
         "source_url":        url,
         "external_id":       external_id,
         "title":             title,
         "short_description": desc[:300],
         "description":       desc,
-        "location_name":     city,
+        "location_name":     location_name,
         "city":              city,
         "postcode":          postcode,
         "salary_min":        salary_min,

@@ -26,6 +26,7 @@ Optioneel te overriden:
 
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
 
 import requests
@@ -35,8 +36,14 @@ from scrapers.base import BaseScraper, SCRAPER_HEADERS
 
 logger = logging.getLogger(__name__)
 
-HOURS_RE   = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
-SALARY_RE  = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+HOURS_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
+SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
 
 
 def _parse_euros(raw: str) -> float | None:
@@ -85,6 +92,57 @@ def _parse_rss_items(xml_text: str) -> list[dict]:
     return items
 
 
+def _fetch_detail_location(url: str) -> tuple[str, str, str]:
+    """
+    Fetch a Teamtailor job detail page and extract (city, postcode, location_name).
+    Teamtailor pages have a location element and often contain structured address text.
+    Returns ("", "", "") on failure.
+    """
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        # Teamtailor location selectors (various versions)
+        for sel in [
+            "[data-qa='job-location']",
+            ".job-meta__location",
+            ".location",
+            "[class*='location']",
+            "span[itemprop='addressLocality']",
+        ]:
+            el = soup.select_one(sel)
+            if el:
+                loc_text = el.get_text(strip=True)
+                if loc_text and len(loc_text) < 80:
+                    return loc_text, "", loc_text
+
+        # Fallback: scan full page text for postcode
+        text = soup.get_text(separator=" ", strip=True)
+        pc_m = POSTCODE_RE.search(text)
+        if pc_m:
+            postcode = pc_m.group(1).replace(" ", "")
+            after = text[pc_m.end():pc_m.end() + 80]
+            city_m = re.match(
+                r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,40}?)(?:\s*[•·\n]|\s{2,}|\s+[A-Z][a-z]|\s*$)",
+                after,
+            )
+            city = city_m.group(1).strip() if city_m else ""
+            before = text[max(0, pc_m.start() - 120):pc_m.start()]
+            st_m = STREET_RE.search(before + " " + pc_m.group(1))
+            if st_m:
+                street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+                location_name = f"{street}, {postcode} {city}".strip(", ").strip()
+            elif city:
+                location_name = f"{postcode} {city}"
+            else:
+                location_name = postcode
+            return city, postcode, location_name
+    except Exception as exc:
+        logger.warning(f"Detail location fetch failed {url}: {exc}")
+    return "", "", ""
+
+
 def _extract_job_fields(item: dict) -> dict:
     """
     Extraheer gestructureerde vacaturevelden uit een RSS item.
@@ -115,6 +173,7 @@ def _extract_job_fields(item: dict) -> dict:
         "description":       desc_text,
         "location_name":     "",
         "city":              "",
+        "postcode":          "",
         "salary_min":        salary_min,
         "salary_max":        salary_max,
         "hours_min":         hours_min,
@@ -179,4 +238,16 @@ class TeamtailorRssScraper(BaseScraper):
         logger.info(f"[{self.company_slug}] {len(items)} items in RSS feed")
 
         jobs = [_extract_job_fields(item) for item in items]
+
+        # Enrich each job with location from detail page
+        logger.info(f"[{self.company_slug}] Fetching detail pages voor locatie-informatie")
+        for job in jobs:
+            city, postcode, location_name = _fetch_detail_location(job["source_url"])
+            if location_name:
+                job["city"] = city
+                job["location_name"] = location_name
+                if postcode:
+                    job["postcode"] = postcode
+            time.sleep(0.3)
+
         return jobs

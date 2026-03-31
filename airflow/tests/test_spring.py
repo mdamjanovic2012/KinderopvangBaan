@@ -164,6 +164,46 @@ class TestScrapeSpringJobPage:
         assert job["salary_min"] == 2641.0
         assert job["salary_max"] == 3630.0
 
+    def test_postcode_and_street_extracted(self):
+        """Postcode + straatnaam in tekst → location_name bevat volledig adres."""
+        html = """<html><body>
+            <h1>PM KDV Rotterdam</h1>
+            <p>Parttime | 24 uur | Rotterdam</p>
+            <p>Werk je graag in Rotterdam? Kom werken op Blaakstraat 12, 3011TA Rotterdam!</p>
+        </body></html>"""
+        resp = MagicMock(); resp.text = html; resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/9-pm-kdv")
+        assert job["postcode"] == "3011TA"
+        assert "Blaakstraat" in job["location_name"]
+        assert "12" in job["location_name"]
+
+    def test_postcode_without_street_gives_postcode_city(self):
+        """Postcode zonder straatnaam → location_name = postcode + stad."""
+        html = """<html><body>
+            <h1>BSO Groningen</h1>
+            <p>Parttime | 20 uur | Groningen</p>
+            <p>Wij zijn gevestigd in 9712AB Groningen.</p>
+        </body></html>"""
+        resp = MagicMock(); resp.text = html; resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/10-bso")
+        assert job["postcode"] == "9712AB"
+        assert "9712AB" in job["location_name"]
+
+    def test_no_postcode_location_name_falls_back_to_city(self):
+        """Geen postcode → location_name = stad."""
+        html = """<html><body>
+            <h1>BSO Utrecht</h1>
+            <p>Parttime | 24 uur | Utrecht</p>
+            <p>Leuke functie in Utrecht centrum.</p>
+        </body></html>"""
+        resp = MagicMock(); resp.text = html; resp.raise_for_status = MagicMock()
+        with patch("scrapers.spring_kinderopvang.requests.get", return_value=resp):
+            job = scrape_spring_job_page(f"{BASE_URL}/nl/vacatures/11-bso")
+        assert job["location_name"] == "Utrecht"
+        assert job["postcode"] == ""
+
 
 # ── SpringKinderopvangScraper.fetch_jobs (gemockt) ────────────────────────────
 

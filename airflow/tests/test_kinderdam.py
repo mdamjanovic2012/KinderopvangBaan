@@ -21,6 +21,7 @@ from scrapers.kinderdam import (
     _get_regio_urls,
     _extract_cards_from_regio_page,
     _extract_description_from_html,
+    _extract_address_from_html,
     _parse_euros,
     _parse_contract,
     _werksoort_to_job_type,
@@ -277,6 +278,50 @@ class TestExtractDescription:
     def test_max_5000_chars(self):
         html = f"<html><body><article>{'x' * 10_000}</article></body></html>"
         assert len(_extract_description_from_html(html)) <= 5000
+
+
+# ── _extract_address_from_html ────────────────────────────────────────────────────
+
+class TestExtractAddressFromHtml:
+    def test_postcode_and_street_extracted(self):
+        html = """<html><body><main>
+            <h1>PM BSO Rotterdam</h1>
+            <p>Kom werken op Bergweg 23, 3037LE Rotterdam!</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "3037LE"
+        assert "Bergweg" in location_name
+        assert "23" in location_name
+
+    def test_postcode_without_street_gives_postcode_city(self):
+        html = """<html><body><main>
+            <h1>BSO Groningen</h1>
+            <p>Wij zijn gevestigd in 9712AB Groningen.</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "9712AB"
+        assert "9712AB" in location_name
+
+    def test_no_postcode_returns_empty(self):
+        html = """<html><body><main>
+            <h1>PM Utrecht</h1>
+            <p>Werken in Utrecht centrum.</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == ""
+        assert city == ""
+        assert location_name == ""
+
+    def test_empty_html_returns_empty(self):
+        postcode, city, location_name = _extract_address_from_html("")
+        assert postcode == city == location_name == ""
+
+    def test_postcode_with_space_normalized(self):
+        html = """<html><body><main>
+            <p>Adres: 3011 AB Rotterdam</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "3011AB"
 
 
 # ── KinderdamScraper.fetch_company ───────────────────────────────────────────────

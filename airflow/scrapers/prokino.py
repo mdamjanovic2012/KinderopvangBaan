@@ -44,8 +44,14 @@ JOB_PATH_PREFIXES = (
     "/meander/",
 )
 
-SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
-HOURS_RE  = re.compile(r"(\d+)\s*(?:tot|[-–])\s*(\d+)\s*uur", re.I)
+SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+HOURS_RE    = re.compile(r"(\d+)\s*(?:tot|[-–])\s*(\d+)\s*uur", re.I)
+POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
 
 
 def _parse_euros(raw: str) -> float | None:
@@ -157,6 +163,22 @@ def _enrich_from_detail(html: str, job: dict) -> None:
     if m:
         job["hours_min"] = int(m.group(1))
         job["hours_max"] = int(m.group(2))
+
+    # Address: postcode + optionally street before it
+    pc_m = POSTCODE_RE.search(text)
+    if pc_m:
+        postcode = pc_m.group(1).replace(" ", "")
+        city = job.get("city", "")
+        before = text[max(0, pc_m.start() - 100):pc_m.start()]
+        st_m = STREET_RE.search(before + " " + pc_m.group(1))
+        if st_m:
+            street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+            job["location_name"] = f"{street}, {postcode} {city}".strip(", ").strip()
+        elif city:
+            job["location_name"] = f"{postcode} {city}"
+        else:
+            job["location_name"] = postcode
+        job["postcode"] = postcode
 
 
 class ProkinoScraper(BaseScraper):

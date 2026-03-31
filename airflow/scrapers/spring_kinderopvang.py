@@ -30,6 +30,12 @@ JOBS_URL  = f"{BASE_URL}/nl/vacatures"
 HOURS_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
 HOURS_1_RE  = re.compile(r"\b(\d+)\s*uur\b", re.I)
 SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*(?:tot|[-–])\s*€?\s*([\d.,]+)", re.I)
+POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
 
 CONTRACT_MAP = {
     "vaste uren":      "fulltime",
@@ -115,6 +121,37 @@ def scrape_spring_job_page(url: str) -> dict | None:
         salary_min = _parse_euros(sm.group(1))
         salary_max = _parse_euros(sm.group(2))
 
+    # Postcode + straat (beste geocoding kwaliteit)
+    postcode = ""
+    pc_m = POSTCODE_RE.search(text)
+    if pc_m:
+        postcode = pc_m.group(1).replace(" ", "")
+        before = text[max(0, pc_m.start() - 100):pc_m.start()]
+        st_m = STREET_RE.search(before + " " + pc_m.group(1))
+        if st_m:
+            street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+            city = city or ""
+            city = f"{street}, {postcode} {city}".strip(", ").strip() if city else f"{street}, {postcode}"
+            # city var is repurposed as location_name; keep original city for the city field
+            # extract actual city name from after postcode
+            after = text[pc_m.end():pc_m.end() + 60]
+            cm = re.match(r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,30}?)(?:\s|$)", after)
+            city_clean = cm.group(1).strip() if cm else city
+            location_name = f"{street}, {postcode} {city_clean}".strip(", ").strip()
+            city = city_clean
+        elif city:
+            location_name = f"{postcode} {city}"
+        else:
+            location_name = postcode
+            # try to extract city after postcode
+            after = text[pc_m.end():pc_m.end() + 60]
+            cm = re.match(r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,30}?)(?:\s|$)", after)
+            if cm:
+                city = cm.group(1).strip()
+                location_name = f"{postcode} {city}"
+    else:
+        location_name = city
+
     # Beschrijving
     desc = ""
     for sel in ["[class*='vacature-content']", "[class*='job-description']", "article", "main .content", ".page-content-inner"]:
@@ -133,8 +170,9 @@ def scrape_spring_job_page(url: str) -> dict | None:
         "title":             title,
         "short_description": desc[:300],
         "description":       desc,
-        "location_name":     city,
+        "location_name":     location_name,
         "city":              city,
+        "postcode":          postcode,
         "salary_min":        salary_min,
         "salary_max":        salary_max,
         "hours_min":         hours_min,

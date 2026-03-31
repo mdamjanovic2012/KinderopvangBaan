@@ -138,13 +138,19 @@ class RecruiteeAPIScraper(BaseScraper):
             if not external_id:
                 external_id = source_url.rstrip("/").split("/")[-1]
 
+            # Compose best location query for PDOK geocoding
+            if postcode and city:
+                location_name = f"{postcode} {city}"
+            else:
+                location_name = city
+
             jobs.append({
                 "source_url":        source_url,
                 "external_id":       external_id,
                 "title":             title,
                 "short_description": desc[:300],
                 "description":       desc,
-                "location_name":     city,
+                "location_name":     location_name,
                 "city":              city,
                 "postcode":          postcode,
                 "salary_min":        sal_min,

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scrapers.teamtailor_rss import (
     _parse_rss_items,
     _extract_job_fields,
+    _fetch_detail_location,
     _strip_html,
     _parse_euros,
 )
@@ -265,6 +266,49 @@ class TestNorlandiaFetchCompany:
             company = scraper.fetch_company()
         assert "Norlandia" in company["name"]
         assert company["logo_url"] == ""
+
+
+# ── _fetch_detail_location ───────────────────────────────────────────────────
+
+class TestFetchDetailLocation:
+    def _mock_get(self, html):
+        resp = MagicMock()
+        resp.text = html
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_teamtailor_location_selector(self):
+        html = """<html><body>
+            <span data-qa="job-location">Amsterdam</span>
+        </body></html>"""
+        with patch("scrapers.teamtailor_rss.requests.get", return_value=self._mock_get(html)):
+            city, postcode, location_name = _fetch_detail_location("https://example.com/jobs/1")
+        assert city == "Amsterdam"
+        assert location_name == "Amsterdam"
+
+    def test_fallback_to_postcode_scan(self):
+        html = """<html><body>
+            <p>Kom werken op Laan van Noi 12, 2593BH Den Haag</p>
+        </body></html>"""
+        with patch("scrapers.teamtailor_rss.requests.get", return_value=self._mock_get(html)):
+            city, postcode, location_name = _fetch_detail_location("https://example.com/jobs/2")
+        assert postcode == "2593BH"
+        assert "2593BH" in location_name
+
+    def test_returns_empty_on_error(self):
+        with patch("scrapers.teamtailor_rss.requests.get", side_effect=Exception("timeout")):
+            city, postcode, location_name = _fetch_detail_location("https://example.com/jobs/3")
+        assert city == ""
+        assert postcode == ""
+        assert location_name == ""
+
+    def test_no_location_info_returns_empty(self):
+        html = """<html><body><p>Leuke vacature zonder adres.</p></body></html>"""
+        with patch("scrapers.teamtailor_rss.requests.get", return_value=self._mock_get(html)):
+            city, postcode, location_name = _fetch_detail_location("https://example.com/jobs/4")
+        assert city == ""
+        assert postcode == ""
+        assert location_name == ""
 
 
 # ── Integratie tests (echte site, vereist netwerk) ───────────────────────────
