@@ -511,6 +511,32 @@
       ]
     },
     {
+      "name": "Scraped Companies",
+      "item": [
+        {
+          "name": "Norlandia company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=norlandia"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Workers",
       "item": [
         {
