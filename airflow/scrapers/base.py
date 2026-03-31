@@ -240,7 +240,7 @@ class BaseScraper:
 
                 # Verrijk met precieze vestiging-coördinaten als fallback
                 try:
-                    from scrapers.vestigingen import match_vestiging
+                    from scrapers.branches import match_vestiging
                     for job in jobs:
                         loc_name = job.get("location_name", "")
                         city = job.get("city", "")

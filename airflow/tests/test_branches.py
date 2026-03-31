@@ -1,11 +1,11 @@
 """
-Unit tests voor vestigingen.py
+Unit tests for branches.py
 
-Test strategie:
-  - _parse_address_block: adres extractie uit vrije tekst
-  - upsert_vestiging: DB write met geocoding mock
-  - match_vestiging: exacte naam match, stad match, fallback
-  - run_vestigingen_scrape: end-to-end met gemockte scraper + DB
+Test strategy:
+  - _parse_address_block: address extraction from free text
+  - upsert_vestiging: DB write with mocked geocoding
+  - match_vestiging: exact name match, city match, fallback
+  - run_vestigingen_scrape: end-to-end with mocked scraper + DB
 """
 
 import sys
@@ -15,11 +15,10 @@ from unittest.mock import patch, MagicMock, call
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from scrapers.vestigingen import (
+from scrapers.branches import (
     _parse_address_block,
     upsert_vestiging,
     match_vestiging,
-    ensure_table,
     run_vestigingen_scrape,
     scrape_partou_vestigingen,
     scrape_kinderdam_vestigingen,
@@ -73,7 +72,7 @@ class TestUpsertVestiging:
     def test_upsert_with_full_address_geocodes(self):
         cur = self._make_cur()
         geo = {"lon": 4.48, "lat": 51.92, "city": "Rotterdam", "postcode": "3012EV"}
-        with patch("scrapers.vestigingen._geocode_via_pdok", return_value=geo):
+        with patch("scrapers.branches._geocode_via_pdok", return_value=geo):
             upsert_vestiging(cur, "test", "KDV De Ster", "Straat 1", "3012EV", "Rotterdam")
         cur.execute.assert_called_once()
         sql = cur.execute.call_args[0][0]
@@ -81,7 +80,7 @@ class TestUpsertVestiging:
 
     def test_upsert_without_geo_stores_without_location(self):
         cur = self._make_cur()
-        with patch("scrapers.vestigingen._geocode_via_pdok", return_value=None):
+        with patch("scrapers.branches._geocode_via_pdok", return_value=None):
             upsert_vestiging(cur, "test", "KDV Geen Geo", "", "", "Amsterdam")
         cur.execute.assert_called_once()
         sql = cur.execute.call_args[0][0]
@@ -90,7 +89,7 @@ class TestUpsertVestiging:
     def test_upsert_with_city_only_still_geocodes(self):
         cur = self._make_cur()
         geo = {"lon": 4.89, "lat": 52.37, "city": "Amsterdam", "postcode": ""}
-        with patch("scrapers.vestigingen._geocode_via_pdok", return_value=geo):
+        with patch("scrapers.branches._geocode_via_pdok", return_value=geo):
             upsert_vestiging(cur, "test", "KDV Amsterdam", "", "", "Amsterdam")
         args = cur.execute.call_args[0][1]
         assert args[0] == "test"
@@ -161,12 +160,11 @@ class TestRunVestigenScrape:
         fake_locations = [{"name": "KDV Test", "street": "Teststraat 1",
                            "postcode": "1234AB", "city": "Amsterdam"}]
 
-        with patch("scrapers.vestigingen.get_connection", return_value=mock_conn), \
-             patch("scrapers.vestigingen.COMPANY_CONFIGS", {
+        with patch("scrapers.branches.get_connection", return_value=mock_conn), \
+             patch("scrapers.branches.COMPANY_CONFIGS", {
                  "test_slug": {"scraper": lambda: fake_locations}
              }), \
-             patch("scrapers.vestigingen.upsert_vestiging") as mock_upsert, \
-             patch("scrapers.vestigingen.ensure_table"):
+             patch("scrapers.branches.upsert_vestiging") as mock_upsert:
             stats = run_vestigingen_scrape(["test_slug"])
 
         assert "test_slug" in stats
@@ -179,8 +177,7 @@ class TestRunVestigenScrape:
         mock_conn.__exit__ = MagicMock(return_value=False)
         mock_conn.cursor = MagicMock(return_value=MagicMock())
 
-        with patch("scrapers.vestigingen.get_connection", return_value=mock_conn), \
-             patch("scrapers.vestigingen.ensure_table"):
+        with patch("scrapers.branches.get_connection", return_value=mock_conn):
             stats = run_vestigingen_scrape(["bestaatniet"])
 
         assert "bestaatniet" not in stats
@@ -194,11 +191,10 @@ class TestRunVestigenScrape:
         def failing_scraper():
             raise ConnectionError("Site unreachable")
 
-        with patch("scrapers.vestigingen.get_connection", return_value=mock_conn), \
-             patch("scrapers.vestigingen.COMPANY_CONFIGS", {
+        with patch("scrapers.branches.get_connection", return_value=mock_conn), \
+             patch("scrapers.branches.COMPANY_CONFIGS", {
                  "failing": {"scraper": failing_scraper}
-             }), \
-             patch("scrapers.vestigingen.ensure_table"):
+             }):
             stats = run_vestigingen_scrape(["failing"])
 
         assert "error" in stats["failing"]
@@ -212,12 +208,11 @@ class TestRunVestigenScrape:
 
         fake_locations = [{"name": "KDV Test", "street": "", "postcode": "", "city": "Amsterdam"}]
 
-        with patch("scrapers.vestigingen.get_connection", return_value=mock_conn), \
-             patch("scrapers.vestigingen.COMPANY_CONFIGS", {
+        with patch("scrapers.branches.get_connection", return_value=mock_conn), \
+             patch("scrapers.branches.COMPANY_CONFIGS", {
                  "test_slug": {"scraper": lambda: fake_locations}
              }), \
-             patch("scrapers.vestigingen.upsert_vestiging", side_effect=Exception("DB error")), \
-             patch("scrapers.vestigingen.ensure_table"):
+             patch("scrapers.branches.upsert_vestiging", side_effect=Exception("DB error")):
             stats = run_vestigingen_scrape(["test_slug"])
 
         # Should still report 0 locations (all failed upserts)
@@ -230,12 +225,11 @@ class TestRunVestigenScrape:
         mock_conn.__exit__ = MagicMock(return_value=False)
         mock_conn.cursor = MagicMock(return_value=MagicMock())
 
-        with patch("scrapers.vestigingen.get_connection", return_value=mock_conn), \
-             patch("scrapers.vestigingen.ensure_table"), \
-             patch("scrapers.vestigingen.upsert_vestiging"):
+        with patch("scrapers.branches.get_connection", return_value=mock_conn), \
+             patch("scrapers.branches.upsert_vestiging"):
             # Replace all configs with simple no-op scrapers
             fake_configs = {k: {"scraper": lambda: []} for k in COMPANY_CONFIGS}
-            with patch("scrapers.vestigingen.COMPANY_CONFIGS", fake_configs):
+            with patch("scrapers.branches.COMPANY_CONFIGS", fake_configs):
                 stats = run_vestigingen_scrape()
 
         assert set(stats.keys()) == set(fake_configs.keys())
@@ -272,7 +266,7 @@ PARTOU_CARD_HTML = """<html><body>
 
 class TestExtractAddressFromElement:
     def test_extracts_name_street_postcode(self):
-        from scrapers.vestigingen import _extract_address_from_element
+        from scrapers.branches import _extract_address_from_element
         from bs4 import BeautifulSoup
         html = "<div><p>KDV De Ster\nBergweg 23\n3037LE Rotterdam</p></div>"
         el = BeautifulSoup(html, "lxml").find("div")
@@ -281,7 +275,7 @@ class TestExtractAddressFromElement:
         assert "Bergweg" in street
 
     def test_empty_element_returns_empty(self):
-        from scrapers.vestigingen import _extract_address_from_element
+        from scrapers.branches import _extract_address_from_element
         from bs4 import BeautifulSoup
         el = BeautifulSoup("<div></div>", "lxml").find("div")
         name, street, postcode_city = _extract_address_from_element(el)
@@ -297,25 +291,25 @@ class TestScrapePartouVestigingen:
         return resp
 
     def test_jsonld_locations_extracted(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(PARTOU_JSONLD_HTML)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(PARTOU_JSONLD_HTML)):
             locations = scrape_partou_vestigingen()
         assert len(locations) >= 1
         assert any(loc["name"] == "Partou KDV De Ster" for loc in locations)
         assert any(loc["city"] == "Rotterdam" for loc in locations)
 
     def test_html_fallback_when_no_jsonld(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(PARTOU_CARD_HTML)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(PARTOU_CARD_HTML)):
             locations = scrape_partou_vestigingen()
         # Should find at least the card
         assert isinstance(locations, list)
 
     def test_returns_empty_on_all_errors(self):
-        with patch("scrapers.vestigingen.requests.get", side_effect=Exception("connection refused")):
+        with patch("scrapers.branches.requests.get", side_effect=Exception("connection refused")):
             locations = scrape_partou_vestigingen()
         assert locations == []
 
     def test_skips_non_200_responses(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp("", status=404)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp("", status=404)):
             locations = scrape_partou_vestigingen()
         assert locations == []
 
@@ -323,7 +317,7 @@ class TestScrapePartouVestigingen:
         html = """<html><body>
             <script type="application/ld+json">INVALID JSON {{{</script>
         </body></html>"""
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(html)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(html)):
             locations = scrape_partou_vestigingen()
         assert isinstance(locations, list)
 
@@ -347,7 +341,7 @@ class TestScrapeKinderdamVestigingen:
         return resp
 
     def test_jsonld_location_extracted(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(KINDERDAM_HTML)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(KINDERDAM_HTML)):
             locations = scrape_kinderdam_vestigingen()
         assert len(locations) >= 1
         loc = locations[0]
@@ -356,7 +350,7 @@ class TestScrapeKinderdamVestigingen:
         assert loc["postcode"] == "2909BC"
 
     def test_returns_empty_on_error(self):
-        with patch("scrapers.vestigingen.requests.get", side_effect=Exception("timeout")):
+        with patch("scrapers.branches.requests.get", side_effect=Exception("timeout")):
             locations = scrape_kinderdam_vestigingen()
         assert locations == []
 
@@ -387,24 +381,24 @@ class TestScrapeGenericVestigingen:
         return resp
 
     def test_jsonld_locations_extracted(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(GENERIC_JSONLD_HTML)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(GENERIC_JSONLD_HTML)):
             locations = _scrape_generic_vestigingen("spring", "https://spring.nl", ["/locaties"])
         assert len(locations) >= 1
         assert locations[0]["name"] == "Spring KDV Amsterdam"
         assert locations[0]["postcode"] == "1012LG"
 
     def test_html_card_fallback(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp(GENERIC_CARD_HTML)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(GENERIC_CARD_HTML)):
             locations = _scrape_generic_vestigingen("spring", "https://spring.nl", ["/locaties"])
         assert isinstance(locations, list)
 
     def test_returns_empty_on_404(self):
-        with patch("scrapers.vestigingen.requests.get", return_value=self._mock_resp("", status=404)):
+        with patch("scrapers.branches.requests.get", return_value=self._mock_resp("", status=404)):
             locations = _scrape_generic_vestigingen("spring", "https://spring.nl", ["/locaties"])
         assert locations == []
 
     def test_returns_empty_on_exception(self):
-        with patch("scrapers.vestigingen.requests.get", side_effect=Exception("SSL")):
+        with patch("scrapers.branches.requests.get", side_effect=Exception("SSL")):
             locations = _scrape_generic_vestigingen("test", "https://test.nl", ["/loc"])
         assert locations == []
 
@@ -413,6 +407,6 @@ class TestScrapeGenericVestigingen:
         def side_effect(url, **kwargs):
             call_count["n"] += 1
             raise Exception("fail")
-        with patch("scrapers.vestigingen.requests.get", side_effect=side_effect):
+        with patch("scrapers.branches.requests.get", side_effect=side_effect):
             _scrape_generic_vestigingen("test", "https://test.nl", ["/a", "/b", "/c"])
         assert call_count["n"] == 3
