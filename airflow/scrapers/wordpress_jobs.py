@@ -104,7 +104,8 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
         locations = [locations]
     if locations:
         addr = locations[0].get("address", {})
-        city = addr.get("addressLocality", "").strip()
+        locality = addr.get("addressLocality", "")
+        city = (locality if isinstance(locality, str) else locality.get("name", "") if isinstance(locality, dict) else "").strip()
         postcode = addr.get("postalCode", "").replace(" ", "").strip()
 
     # Salaris
