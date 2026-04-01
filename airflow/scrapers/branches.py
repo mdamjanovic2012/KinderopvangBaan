@@ -233,6 +233,28 @@ def _parse_address_block(text: str) -> tuple[str, str, str]:
     return street, postcode, city
 
 
+
+# ── JavaScript data extraction helpers ───────────────────────────────────────
+
+def _extract_js_json(html: str, var_name: str) -> list[dict]:
+    """
+    Extract a JSON array assigned to a JavaScript variable in a page.
+    Handles: `var_name = [...]` and `var_name=[...]` patterns.
+    """
+    import json as _json
+    pattern = re.compile(
+        re.escape(var_name) + r"\s*=\s*(\[[\s\S]*?\])\s*;",
+        re.DOTALL,
+    )
+    m = pattern.search(html)
+    if not m:
+        return []
+    try:
+        return _json.loads(m.group(1))
+    except Exception:
+        return []
+
+
 # ── Company-specific scrapers ─────────────────────────────────────────────────
 
 def scrape_partou_vestigingen() -> list[dict]:
@@ -425,6 +447,211 @@ def _scrape_generic_vestigingen(company_slug: str, base_url: str,
     return locations
 
 
+def scrape_compananny_vestigingen() -> list[dict]:
+    """
+    Scrape CompaNanny branches from compananny.com/locaties.
+    The page embeds a JavaScript 'locations' array with address + zipcode per location.
+    """
+    locations = []
+    for url in ["https://www.compananny.com/locaties", "https://www.compananny.nl/locaties"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+
+            items = _extract_js_json(resp.text, "locations")
+            for item in items:
+                name    = str(item.get("name") or "").strip()
+                address = str(item.get("address") or "").strip()
+                zipcode = str(item.get("zipcode") or "").strip()
+                # zipcode may be "1091 RV, Amsterdam" or just "1091RV"
+                pc_m = POSTCODE_RE.search(zipcode)
+                postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
+                # City after the postcode in the zipcode string, or separate field
+                city_m = re.search(r"\d{4}\s*[A-Z]{2}[,\s]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,40})", zipcode)
+                city = city_m.group(1).strip() if city_m else (item.get("city") or "").strip()
+                if not city:
+                    city = (item.get("url") or "").split("/locaties/")[-1].split("/")[0].replace("-", " ").title()
+                if name and (city or postcode):
+                    locations.append({
+                        "name": name, "street": address,
+                        "postcode": postcode, "city": city,
+                    })
+
+            if locations:
+                logger.info(f"[compananny-branches] {len(locations)} locations from JS array at {url}")
+                return locations
+
+        except Exception as exc:
+            logger.warning(f"[compananny-branches] {url} failed: {exc}")
+
+    return locations
+
+
+def scrape_tinteltuin_vestigingen() -> list[dict]:
+    """
+    Scrape TintelTuin branches from tinteltuin.nl/kinderopvang.
+    The page embeds a JavaScript array with location name + adres (full address).
+    """
+    locations = []
+    for url in ["https://tinteltuin.nl/kinderopvang", "https://www.tinteltuin.nl/kinderopvang"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+
+            # TintelTuin embeds location data as a JS array; adres contains "Street, POSTCODE City"
+            items = _extract_js_json(resp.text, "locations") or _extract_js_json(resp.text, "locaties")
+            if not items:
+                # Try to find any JSON-like array with 'adres' key
+                m = re.search(r'\[\s*\{[^]]*"adres"[^]]*\}[^]]*\]', resp.text, re.DOTALL)
+                if m:
+                    import json as _json
+                    try:
+                        items = _json.loads(m.group(0))
+                    except Exception:
+                        pass
+
+            for item in items:
+                name  = str(item.get("name") or item.get("naam") or "").strip()
+                adres = str(item.get("adres") or item.get("address") or "").strip()
+                if not adres:
+                    continue
+                street, postcode, city = _parse_address_block(adres)
+                if not city:
+                    pc_m = POSTCODE_RE.search(adres)
+                    postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
+                if name and (city or postcode):
+                    locations.append({
+                        "name": name, "street": street,
+                        "postcode": postcode, "city": city,
+                    })
+
+            if locations:
+                logger.info(f"[tinteltuin-branches] {len(locations)} locations at {url}")
+                return locations
+
+        except Exception as exc:
+            logger.warning(f"[tinteltuin-branches] {url} failed: {exc}")
+
+    return locations
+
+
+def scrape_sinne_vestigingen() -> list[dict]:
+    """
+    Scrape Sinne branches from sinnekinderopvang.nl/contact/vind-een-locatie.
+    Page embeds window.ProjectenData with headline + adres (full address).
+    """
+    locations = []
+    for url in [
+        "https://www.sinnekinderopvang.nl/contact/vind-een-locatie",
+        "https://www.sinnekinderopvang.nl/locaties",
+    ]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+
+            items = _extract_js_json(resp.text, "window.ProjectenData") or \
+                    _extract_js_json(resp.text, "ProjectenData")
+            if not items:
+                # Also look for JSON-like array with headline+adres pattern
+                m = re.search(r'ProjectenData\s*=\s*(\[[\s\S]*?\])\s*[;\n]', resp.text)
+                if m:
+                    import json as _json
+                    try:
+                        items = _json.loads(m.group(1))
+                    except Exception:
+                        pass
+
+            for item in items:
+                name = str(item.get("headline") or item.get("name") or "").strip()
+                adres = str(item.get("adres") or item.get("address") or "").strip()
+                if not adres:
+                    continue
+                street, postcode, city = _parse_address_block(adres)
+                if not postcode:
+                    pc_m = POSTCODE_RE.search(adres)
+                    postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
+                if name and (city or postcode):
+                    locations.append({
+                        "name": name, "street": street,
+                        "postcode": postcode, "city": city,
+                    })
+
+            if locations:
+                logger.info(f"[sinne-branches] {len(locations)} locations at {url}")
+                return locations
+
+        except Exception as exc:
+            logger.warning(f"[sinne-branches] {url} failed: {exc}")
+
+    return locations
+
+
+def scrape_humankind_vestigingen() -> list[dict]:
+    """
+    Scrape Humankind branches from humankind.nl/vestigingen.
+    Page embeds Leaflet GeoJSON features with address in popup HTML.
+    Uses sitemap.xml to enumerate 500+ individual location pages as fallback.
+    """
+    import json as _json
+    locations = []
+
+    # Try main vestigingen overview page (Leaflet data)
+    for url in ["https://www.humankind.nl/vestigingen", "https://humankind.nl/vestigingen"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+
+            # Extract Leaflet features array
+            m = re.search(r'"features"\s*:\s*(\[[\s\S]*?\])\s*[,}]', resp.text, re.DOTALL)
+            if m:
+                try:
+                    features = _json.loads(m.group(1))
+                    for feat in features:
+                        popup_html = feat.get("popup", "")
+                        label = feat.get("label", "")
+                        if popup_html:
+                            soup = BeautifulSoup(popup_html, "lxml")
+                            text = soup.get_text(separator=" ", strip=True)
+                            street, postcode, city = _parse_address_block(text)
+                            if postcode or city:
+                                name = label or feat.get("title", "")
+                                locations.append({
+                                    "name": name or f"{street}, {city}",
+                                    "street": street,
+                                    "postcode": postcode,
+                                    "city": city,
+                                })
+                except Exception:
+                    pass
+
+            # HTML fallback: cards with address
+            if not locations:
+                soup = BeautifulSoup(resp.text, "lxml")
+                for card in soup.select("article, .location-card, [class*='vestiging']"):
+                    name_el = card.select_one("h2, h3, h4, strong")
+                    name = name_el.get_text(strip=True) if name_el else ""
+                    text = card.get_text(separator="\n")
+                    street, postcode, city = _parse_address_block(text)
+                    if name and (postcode or city):
+                        locations.append({
+                            "name": name, "street": street,
+                            "postcode": postcode, "city": city,
+                        })
+
+            if locations:
+                logger.info(f"[humankind-branches] {len(locations)} locations at {url}")
+                return locations
+
+        except Exception as exc:
+            logger.warning(f"[humankind-branches] {url} failed: {exc}")
+
+    return locations
+
+
 # ── Company configs ───────────────────────────────────────────────────────────
 
 def _generic(slug: str, *sites: str) -> dict:
@@ -465,24 +692,10 @@ COMPANY_CONFIGS = {
         "gro-up",
         "https://www.gro-up.nl",
     ),
-    "compananny": _generic(
-        "compananny",
-        "https://www.compananny.nl",
-        "https://www.werkenbijcompananny.nl",
-    ),
-    "sinne": _generic(
-        "sinne",
-        "https://www.sinnekinderopvang.nl",
-        "https://www.sinne.nl",
-    ),
-    "tinteltuin": _generic(
-        "tinteltuin",
-        "https://www.tinteltuin.nl",
-    ),
-    "humankind": _generic(
-        "humankind",
-        "https://www.humankind.nl",
-    ),
+    "compananny": {"scraper": scrape_compananny_vestigingen},
+    "sinne":      {"scraper": scrape_sinne_vestigingen},
+    "tinteltuin": {"scraper": scrape_tinteltuin_vestigingen},
+    "humankind":  {"scraper": scrape_humankind_vestigingen},
     "kibeo": _generic(
         "kibeo",
         "https://www.kibeo.nl",
