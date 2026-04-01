@@ -100,6 +100,77 @@ class TestUpsertVestiging:
         assert args[0] == "test"
         assert args[1] == "KDV Amsterdam"
 
+    def test_insert_with_geo_includes_created_at(self):
+        """INSERT met geo moet created_at bevatten (NOT NULL constraint)."""
+        cur = self._make_cur()
+        geo = {"lon": 4.48, "lat": 51.92, "city": "Rotterdam", "postcode": "3012EV"}
+        with patch("scrapers.branches._geocode_via_pdok", return_value=geo):
+            upsert_vestiging(cur, "test", "KDV Test", "Straat 1", "3012EV", "Rotterdam")
+        sql = cur.execute.call_args[0][0]
+        assert "created_at" in sql
+
+    def test_insert_without_geo_includes_created_at(self):
+        """INSERT zonder geo moet ook created_at bevatten."""
+        cur = self._make_cur()
+        with patch("scrapers.branches._geocode_via_pdok", return_value=None):
+            upsert_vestiging(cur, "test", "KDV Test", "", "", "Amsterdam")
+        sql = cur.execute.call_args[0][0]
+        assert "created_at" in sql
+
+
+class TestRunVestigingSavepoints:
+    """Verify that a failed upsert does not abort the entire transaction."""
+
+    def _make_conn(self, cur):
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.cursor = MagicMock(return_value=cur)
+        return conn
+
+    def test_savepoint_released_on_success(self):
+        cur = MagicMock()
+        conn = self._make_conn(cur)
+        fake_locations = [{"name": "KDV A", "street": "S 1", "postcode": "1234AB", "city": "Amsterdam"}]
+
+        with patch("scrapers.branches.get_connection", return_value=conn), \
+             patch("scrapers.branches.COMPANY_CONFIGS", {"slug": {"scraper": lambda: fake_locations}}), \
+             patch("scrapers.branches.upsert_vestiging"):
+            run_vestigingen_scrape(["slug"])
+
+        savepoint_calls = [c for c in cur.execute.call_args_list
+                           if "SAVEPOINT" in str(c)]
+        release_calls   = [c for c in cur.execute.call_args_list
+                           if "RELEASE SAVEPOINT" in str(c)]
+        assert len(savepoint_calls) >= 1
+        assert len(release_calls) >= 1
+
+    def test_savepoint_rolled_back_on_failure(self):
+        """Als upsert faalt, wordt ROLLBACK TO SAVEPOINT aangeroepen i.p.v. abort."""
+        cur = MagicMock()
+        conn = self._make_conn(cur)
+        fake_locations = [
+            {"name": "KDV A", "street": "", "postcode": "", "city": "Rotterdam"},
+            {"name": "KDV B", "street": "", "postcode": "", "city": "Amsterdam"},
+        ]
+
+        call_count = {"n": 0}
+        def failing_first(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise Exception("NOT NULL violation")
+
+        with patch("scrapers.branches.get_connection", return_value=conn), \
+             patch("scrapers.branches.COMPANY_CONFIGS", {"slug": {"scraper": lambda: fake_locations}}), \
+             patch("scrapers.branches.upsert_vestiging", side_effect=failing_first):
+            stats = run_vestigingen_scrape(["slug"])
+
+        rollback_calls = [c for c in cur.execute.call_args_list
+                          if "ROLLBACK TO SAVEPOINT" in str(c)]
+        assert len(rollback_calls) >= 1
+        # Second location should still succeed
+        assert stats["slug"]["locations"] == 1
+
 
 # ── match_vestiging ───────────────────────────────────────────────────────────
 
