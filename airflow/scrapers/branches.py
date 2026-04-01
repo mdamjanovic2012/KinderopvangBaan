@@ -98,10 +98,11 @@ def upsert_vestiging(cur, company_slug: str, name: str, street: str,
     if lon is not None:
         cur.execute("""
             INSERT INTO jobs_vestiging
-                (company_slug, name, street, postcode, city, location, geocoded_at, updated_at)
+                (company_slug, name, street, postcode, city, location,
+                 geocoded_at, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s,
                     ST_SetSRID(ST_MakePoint(%s, %s), 4326),
-                    NOW(), NOW())
+                    NOW(), NOW(), NOW())
             ON CONFLICT (company_slug, name) DO UPDATE SET
                 street      = EXCLUDED.street,
                 postcode    = EXCLUDED.postcode,
@@ -113,8 +114,8 @@ def upsert_vestiging(cur, company_slug: str, name: str, street: str,
     else:
         cur.execute("""
             INSERT INTO jobs_vestiging
-                (company_slug, name, street, postcode, city, updated_at)
-            VALUES (%s, %s, %s, %s, %s, NOW())
+                (company_slug, name, street, postcode, city, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (company_slug, name) DO UPDATE SET
                 street     = EXCLUDED.street,
                 postcode   = EXCLUDED.postcode,
@@ -816,6 +817,7 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
 
                 inserted = 0
                 for loc in locations:
+                    cur.execute("SAVEPOINT sp_upsert")
                     try:
                         upsert_vestiging(
                             cur,
@@ -825,9 +827,11 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                             postcode=loc.get("postcode", ""),
                             city=loc["city"],
                         )
+                        cur.execute("RELEASE SAVEPOINT sp_upsert")
                         inserted += 1
                         time.sleep(0.2)  # PDOK rate limiting
                     except Exception as exc:
+                        cur.execute("ROLLBACK TO SAVEPOINT sp_upsert")
                         logger.warning(f"[branches] Upsert failed for {loc.get('name')}: {exc}")
 
                 stats[slug] = {"locations": inserted}
