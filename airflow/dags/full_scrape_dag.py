@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
+from airflow.utils.trigger_rule import TriggerRule
 
 # ── Scrapers: module → klasse (alphabetisch) ─────────────────────────────────
 
@@ -118,9 +119,10 @@ with DAG(
                     task_id=f"scrape_{slug}",
                     python_callable=_make_scraper_callable(module, klass),
                     execution_timeout=timedelta(minutes=30),
-                    # Fouten in één scraper mogen de rest van de batch niet stoppen
                     retries=1,
                     retry_delay=timedelta(minutes=3),
+                    # Start ook als vorige batch/branches-taak mislukt is
+                    trigger_rule=TriggerRule.ALL_DONE,
                 )
         batch_task_groups.append(tg)
 
@@ -128,7 +130,8 @@ with DAG(
     validate_links = PythonOperator(
         task_id="validate_links",
         python_callable=run_link_validation,
-        execution_timeout=timedelta(hours=2),  # kan lang duren bij veel URLs
+        execution_timeout=timedelta(hours=2),
+        trigger_rule=TriggerRule.ALL_DONE,
     )
 
     # ── Afhankelijkheden: branches → batch_00 → batch_01 → … → validate ──────
