@@ -208,11 +208,14 @@ class TestKidsFirstLive:
 
 class TestNorlandiaLive:
     @pytest.mark.integration
-    @_XFAIL_NO_PAGE
-    def test_vraća_barem_jednu_lokaciju(self):
-        # Norlandia /vestigingen vraća 404; /kinderopvang stranica nema JSON-LD lokacija
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("norlandia", min_locations=50)
+        _assert_full_address("norlandia", locs, min_with_street_pct=90)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("norlandia", min_locations=1)
-        _assert_full_address("norlandia", locs, min_with_street_pct=50)
+        _assert_has_coords("norlandia", locs, min_pct=80)
 
 
 class TestKibeoLive:
@@ -225,18 +228,26 @@ class TestKibeoLive:
 
 class TestKindergardenLive:
     @pytest.mark.integration
-    def test_vraća_barem_jednu_lokaciju(self):
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("kindergarden", min_locations=50)
+        _assert_full_address("kindergarden", locs, min_with_street_pct=90)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("kindergarden", min_locations=1)
-        _assert_full_address("kindergarden", locs, min_with_street_pct=50)
+        _assert_has_coords("kindergarden", locs, min_pct=90)
 
 
 class TestBijdehandjesLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
-        # bijdehandjes.info/vind-jouw-locatie/overzicht učitava AJAX-om
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("bijdehandjes", min_locations=20)
+        _assert_full_address("bijdehandjes", locs, min_with_street_pct=90)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("bijdehandjes", min_locations=1)
-        _assert_full_address("bijdehandjes", locs, min_with_street_pct=50)
+        _assert_has_coords("bijdehandjes", locs, min_pct=90)
 
 
 # ── Poznate neodržane kompanije (xfail) ──────────────────────────────────────
@@ -257,10 +268,14 @@ class TestBinkLive:
 
 class TestDakLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("dak", min_locations=20)
+        _assert_full_address("dak", locs, min_with_street_pct=90)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("dak", min_locations=1)
-        _assert_full_address("dak", locs, min_with_street_pct=50)
+        _assert_has_coords("dak", locs, min_pct=90)
 
 
 class TestDichtbijLive:
@@ -281,10 +296,9 @@ class TestKinderwoudLive:
 
 class TestMikLive:
     @pytest.mark.integration
-    @_XFAIL_DNS
-    def test_vraća_barem_jednu_lokaciju(self):
-        locs = _check_locations("mik", min_locations=1)
-        _assert_full_address("mik", locs, min_with_street_pct=50)
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("mik", min_locations=100)
+        _assert_full_address("mik", locs, min_with_street_pct=90)
 
 
 class TestOpStoomLive:
@@ -313,34 +327,40 @@ class TestTweeSamenLive:
 
 class TestWaskoLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
-        locs = _check_locations("wasko", min_locations=1)
-        _assert_full_address("wasko", locs, min_with_street_pct=50)
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("wasko", min_locations=50)
+        _assert_full_address("wasko", locs, min_with_street_pct=80)
 
 
 class TestWijZijnJongLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("wij-zijn-jong", min_locations=50)
+        _assert_full_address("wij-zijn-jong", locs, min_with_street_pct=80)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("wij-zijn-jong", min_locations=1)
-        _assert_full_address("wij-zijn-jong", locs, min_with_street_pct=50)
+        _assert_has_coords("wij-zijn-jong", locs, min_pct=80)
 
 
 class TestKanteelLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("kanteel", min_locations=20)
+        _assert_full_address("kanteel", locs, min_with_street_pct=80)
+
+    @pytest.mark.integration
+    def test_ima_koordinate(self):
         locs = _check_locations("kanteel", min_locations=1)
-        _assert_full_address("kanteel", locs, min_with_street_pct=50)
+        _assert_has_coords("kanteel", locs, min_pct=80)
 
 
 class TestKoWalcherenLive:
     @pytest.mark.integration
-    @_XFAIL_NO_PAGE
-    def test_vraća_barem_jednu_lokaciju(self):
-        locs = _check_locations("ko-walcheren", min_locations=1)
-        _assert_full_address("ko-walcheren", locs, min_with_street_pct=50)
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("ko-walcheren", min_locations=50)
+        _assert_full_address("ko-walcheren", locs, min_with_street_pct=90)
 
 
 class TestSamenwerkendeKoLive:
@@ -353,7 +373,6 @@ class TestSamenwerkendeKoLive:
 
 class TestGroUpLive:
     @pytest.mark.integration
-    @_XFAIL_JS
-    def test_vraća_barem_jednu_lokaciju(self):
-        locs = _check_locations("gro-up", min_locations=1)
-        _assert_full_address("gro-up", locs, min_with_street_pct=50)
+    def test_vraća_lokacije_sa_punom_adresom(self):
+        locs = _check_locations("gro-up", min_locations=100)
+        _assert_full_address("gro-up", locs, min_with_street_pct=80)

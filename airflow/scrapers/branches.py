@@ -899,6 +899,275 @@ def scrape_kinderdam_vestigingen() -> list[dict]:
     return locations
 
 
+def scrape_kindergarden_vestigingen() -> list[dict]:
+    """
+    Kindergarden (kindergarden.nl) — JSON API /api/locations.
+    Returns all 76+ locations with full address + coordinates.
+    """
+    url = "https://www.kindergarden.nl/api/locations?sc_device=json"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning(f"[kindergarden-branches] API failed: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+    for item in data.get("Locations", []):
+        name     = (item.get("Name") or "").strip()
+        street   = (item.get("Address") or "").strip()
+        postcode = (item.get("PostalCode") or "").replace(" ", "")
+        city     = (item.get("City") or "").strip()
+        lat      = float(item["Latitude"])  if item.get("Latitude")  else None
+        lon      = float(item["Longitude"]) if item.get("Longitude") else None
+
+        if not name or not (postcode or city):
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lon": lon, "lat": lat,
+        })
+
+    logger.info(f"[kindergarden-branches] {len(locations)} locations from API")
+    return locations
+
+
+def scrape_ko_walcheren_vestigingen() -> list[dict]:
+    """
+    KO Walcheren (kinderopvangwalcheren.nl) — HTML list with .location-teaser__inner cards.
+    Each card has a title and address: "Street 5, 1234AB City".
+    """
+    url = "https://www.kinderopvangwalcheren.nl/locaties"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+    except Exception as exc:
+        logger.warning(f"[ko-walcheren-branches] fetch failed: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+    for card in soup.select(".location-teaser__inner"):
+        title_el = card.select_one(".location-teaser__title")
+        addr_el  = card.select_one(".location-teaser__address")
+        if not title_el or not addr_el:
+            continue
+
+        name      = title_el.get_text(strip=True)
+        addr_text = addr_el.get_text(strip=True)
+        m_pc = POSTCODE_RE.search(addr_text)
+        if not m_pc:
+            continue
+
+        postcode  = m_pc.group(1).replace(" ", "")
+        city      = addr_text[m_pc.end():].strip().lstrip(",").strip()
+        street    = addr_text[:m_pc.start()].rstrip(", ")
+
+        if not name or not postcode:
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lon": None, "lat": None,
+        })
+
+    logger.info(f"[ko-walcheren-branches] {len(locations)} locations from HTML")
+    return locations
+
+
+def scrape_mik_vestigingen() -> list[dict]:
+    """
+    MIK (mik-nijmegen.nl → redirects to mik-spelenderwijs.nl) — HTML list page.
+    Each item: <h4>Name</h4><span>Street - PostcodeCity</span>
+    """
+    url = "https://www.mik-spelenderwijs.nl/locaties"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+    except Exception as exc:
+        logger.warning(f"[mik-branches] fetch failed: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+    # Location list items: <li><a href="..."><h4>Name</h4><span>Addr - PostcodeCity</span></a></li>
+    for li in soup.select("li[wire\\:key]"):
+        h4 = li.select_one("h4")
+        span = li.select_one("span")
+        if not h4 or not span:
+            continue
+
+        name = h4.get_text(strip=True)
+        addr_text = span.get_text(strip=True)  # "Lindenlaan 73 - 6241BB Bunde"
+
+        # Format: "Street NR - PostcodeCity"
+        m_pc = POSTCODE_RE.search(addr_text)
+        if not m_pc:
+            continue
+
+        postcode  = m_pc.group(1).replace(" ", "")
+        city      = addr_text[m_pc.end():].strip()
+        street    = addr_text[:m_pc.start()].rstrip(" -").strip()
+
+        if not name or not postcode:
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lon": None, "lat": None,
+        })
+
+    logger.info(f"[mik-branches] {len(locations)} locations from HTML")
+    return locations
+
+
+def scrape_norlandia_vestigingen() -> list[dict]:
+    """
+    Norlandia kinderopvang (norlandia.nl) — city sub-pages with embedded JSON.
+    Strategy:
+      1. Fetch /zoek-locatie to get list of all city URLs.
+      2. For each city URL fetch the page and extract the Items array from the model,
+         which contains Address, ZipCode, Position (lat/lon) per location.
+    """
+    import json as _json
+
+    base = "https://norlandia.nl"
+    try:
+        resp = requests.get(f"{base}/zoek-locatie", headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        m = re.search(r'"Cities"\s*:\s*(\[.*?\])\s*[,}]', resp.text, re.DOTALL)
+        if not m:
+            logger.warning("[norlandia-branches] Could not find Cities array on zoek-locatie")
+            return []
+        cities = _json.loads(m.group(1))
+    except Exception as exc:
+        logger.warning(f"[norlandia-branches] Failed to fetch city list: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+
+    for city_obj in cities:
+        city_url = base + city_obj.get("Url", "")
+        try:
+            r = requests.get(city_url, headers=SCRAPER_HEADERS, timeout=20)
+            if r.status_code != 200:
+                continue
+            # Find the second 'var model' block (first is the search widget, second has MapHits)
+            idx = r.text.find('var model = {', r.text.find('ViewOtherLocationsText') - 200)
+            if idx < 0:
+                idx = r.text.rfind('var model = {')
+            if idx < 0:
+                continue
+            brace_start = r.text.index('{', idx)
+            depth = 0
+            brace_end = brace_start
+            for i in range(brace_start, min(brace_start + 400000, len(r.text))):
+                if r.text[i] == '{':
+                    depth += 1
+                elif r.text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        brace_end = i + 1
+                        break
+            model = _json.loads(r.text[brace_start:brace_end])
+            items = model.get("MapHits", [])
+            for item in items:
+                name     = (item.get("Name") or "").strip()
+                street   = (item.get("Address") or "").strip()
+                postcode = (item.get("ZipCode") or "").replace(" ", "")
+                city     = (item.get("Municipality") or "").strip()
+                pos      = item.get("Position") or {}
+                lat      = float(pos["Latitude"])  if pos.get("Latitude")  else None
+                lon      = float(pos["Longitude"]) if pos.get("Longitude") else None
+
+                if not name or not (postcode or city):
+                    continue
+                key = f"{name}|{postcode}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                locations.append({
+                    "name": name, "street": street,
+                    "postcode": postcode, "city": city,
+                    "lon": lon, "lat": lat,
+                })
+            time.sleep(0.3)
+        except Exception as exc:
+            logger.warning(f"[norlandia-branches] {city_url} failed: {exc}")
+
+    logger.info(f"[norlandia-branches] {len(locations)} locations from city pages")
+    return locations
+
+
+def scrape_bijdehandjes_vestigingen() -> list[dict]:
+    """
+    BijdeHandjes (bijdehandjes.info) — hidden JSON API used by the location map.
+    Endpoint: /api/locations/groups — returns all locations with full address + coordinates.
+    """
+    url = "https://www.bijdehandjes.info/api/locations/groups"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning(f"[bijdehandjes-branches] API fetch failed: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+    for group in data.get("locations", []):
+        name    = (group.get("title") or "").strip()
+        address = (group.get("address") or "").strip()
+        geo     = group.get("geofield") or {}
+        lat     = geo.get("lat")
+        lon     = geo.get("lon")
+
+        # address format: "Street 12, 1234AB City"
+        street = postcode = city = ""
+        if address:
+            m_pc = POSTCODE_RE.search(address)
+            if m_pc:
+                postcode = m_pc.group(1).replace(" ", "")
+                before_pc = address[:m_pc.start()].rstrip(", ")
+                after_pc  = address[m_pc.end():].lstrip(", ").strip()
+                street  = before_pc
+                city    = after_pc
+
+        if not name or not (postcode or city):
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lon": lon, "lat": lat,
+        })
+
+    logger.info(f"[bijdehandjes-branches] {len(locations)} locations from API")
+    return locations
+
+
 def scrape_dak_vestigingen() -> list[dict]:
     """
     DAK kindercentra (dakkindercentra.nl) — GeoJSON endpoint.
@@ -1227,24 +1496,14 @@ COMPANY_CONFIGS = {
     "tinteltuin": {"scraper": scrape_tinteltuin_vestigingen},
     "humankind":  {"scraper": scrape_humankind_vestigingen},
     # ── generic scrapers ──────────────────────────────────────────────────────
-    "norlandia": _generic(
-        "norlandia",
-        "https://www.norlandia.nl",
-    ),
+    "norlandia": {"scraper": scrape_norlandia_vestigingen},
     "gro-up": {"scraper": scrape_gro_up_vestigingen},
     "kibeo": _generic(
         "kibeo",
         "https://www.kibeo.nl",
     ),
-    "kindergarden": _generic(
-        "kindergarden",
-        "https://www.kindergarden.nl",
-        "https://www.werkenbijkindergarden.nl",
-    ),
-    "bijdehandjes": _generic(
-        "bijdehandjes",
-        "https://www.bijdehandjes.info",   # .info not .nl
-    ),
+    "kindergarden": {"scraper": scrape_kindergarden_vestigingen},
+    "bijdehandjes": {"scraper": scrape_bijdehandjes_vestigingen},
     "bink": _generic(
         "bink",
         "https://www.debinkopmeer.nl",     # binkopvang.nl redirects here
@@ -1264,10 +1523,7 @@ COMPANY_CONFIGS = {
         "https://www.kidsfirst.nl",            # .nl works; kidsfirstkinderopvang.nl has DNS issues
         "https://www.kidsfirstkinderopvang.nl",
     ),
-    "mik": _generic(
-        "mik",
-        "https://www.mik-nijmegen.nl",
-    ),
+    "mik": {"scraper": scrape_mik_vestigingen},    # mik-nijmegen.nl → mik-spelenderwijs.nl
     "op-stoom": _generic(
         "op-stoom",
         "https://www.op-stoom.nl",
@@ -1283,10 +1539,7 @@ COMPANY_CONFIGS = {
     "wasko":       {"scraper": scrape_wasko_vestigingen},
     "wij-zijn-jong": {"scraper": scrape_wij_zijn_jong_vestigingen},
     "kanteel":     {"scraper": scrape_kanteel_vestigingen},
-    "ko-walcheren": _generic(
-        "ko-walcheren",
-        "https://www.kinderopvangwalcheren.nl",
-    ),
+    "ko-walcheren": {"scraper": scrape_ko_walcheren_vestigingen},
     "samenwerkende-ko": _generic(
         "samenwerkende-ko",
         "https://www.samenwerkendekinderopvang.nl",
@@ -1376,7 +1629,7 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                 except Exception as exc:
                     logger.error(f"[branches] {slug} scraper error: {exc}")
                     locations = []
-                    stats[slug] = {"error": str(exc)}
+                    stats[slug] = {"error": str(exc), "locations": 0, "fallback": False}
 
                 # Fallback: pull locations from job data when scraper found nothing
                 fallback_used = False
@@ -1406,7 +1659,11 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                         cur.execute("ROLLBACK TO SAVEPOINT sp_upsert")
                         logger.warning(f"[branches] Upsert failed for {loc.get('name')}: {exc}")
 
-                stats[slug] = {"locations": inserted, "fallback": fallback_used}
+                if "error" not in stats.get(slug, {}):
+                    stats[slug] = {"locations": inserted, "fallback": fallback_used}
+                else:
+                    stats[slug]["locations"] = inserted
+                    stats[slug]["fallback"] = fallback_used
                 logger.info(
                     f"[branches] {slug}: {inserted} branches saved"
                     + (" (from job data)" if fallback_used else "")

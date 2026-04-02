@@ -31,6 +31,15 @@ from scrapers.branches import (
     scrape_tinteltuin_vestigingen,
     scrape_sinne_vestigingen,
     scrape_humankind_vestigingen,
+    scrape_norlandia_vestigingen,
+    scrape_kindergarden_vestigingen,
+    scrape_ko_walcheren_vestigingen,
+    scrape_mik_vestigingen,
+    scrape_bijdehandjes_vestigingen,
+    scrape_dak_vestigingen,
+    scrape_wij_zijn_jong_vestigingen,
+    scrape_wasko_vestigingen,
+    scrape_kanteel_vestigingen,
     _scrape_generic_vestigingen,
     _extract_js_json,
     COMPANY_CONFIGS,
@@ -1171,4 +1180,580 @@ class TestScrapeKionVestigingen:
         with patch("scrapers.branches.requests.get",
                    side_effect=Exception("DNS")):
             locations = scrape_kion_vestigingen()
+        assert locations == []
+
+
+# ── scrape_bijdehandjes_vestigingen ───────────────────────────────────────────
+
+BIJDEHANDJES_JSON = {
+    "locations": [
+        {
+            "id": "356",
+            "title": "Berglaan Voorthuizen",
+            "address": "Van den Berglaan 79, 3781GE Voorthuizen",
+            "geofield": {"lat": 52.18399, "lon": 5.606873},
+        },
+        {
+            "id": "357",
+            "title": "De Koppel Amersfoort",
+            "address": "Zuiderkruis 4, 3813VA Amersfoort",
+            "geofield": {"lat": 52.165013, "lon": 5.384491},
+        },
+    ],
+    "services": [],
+    "club_sport_name": None,
+}
+
+
+class TestScrapeBijdehandjesVestigingen:
+    def _mock_resp(self, data, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.json.return_value = data
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(BIJDEHANDJES_JSON)):
+            locations = scrape_bijdehandjes_vestigingen()
+        assert len(locations) == 2
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(BIJDEHANDJES_JSON)):
+            locations = scrape_bijdehandjes_vestigingen()
+        loc = next(l for l in locations if "Voorthuizen" in l["name"])
+        assert loc["street"] == "Van den Berglaan 79"
+        assert loc["postcode"] == "3781GE"
+        assert loc["city"] == "Voorthuizen"
+        assert loc["lat"] == pytest.approx(52.18399)
+        assert loc["lon"] == pytest.approx(5.606873)
+
+    def test_api_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("timeout")):
+            locations = scrape_bijdehandjes_vestigingen()
+        assert locations == []
+
+    def test_empty_locations_key(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp({"locations": [], "services": []})):
+            locations = scrape_bijdehandjes_vestigingen()
+        assert locations == []
+
+
+# ── scrape_norlandia_vestigingen ──────────────────────────────────────────────
+
+NORLANDIA_CITY_LIST_HTML = """
+<script type="text/javascript">
+var model = {
+  "Cities": [
+    {"Name": "Rotterdam", "Url": "/zoek-locatie/rotterdam"}
+  ]
+}
+</script>
+"""
+
+NORLANDIA_CITY_PAGE_HTML = """
+<script type="text/javascript">
+var model = {
+  "ViewOtherLocationsText": "Bekijk",
+  "MapHits": [
+    {
+      "Id": 61902,
+      "Position": {"Latitude": "51.9348", "Longitude": "4.4368"},
+      "Name": "Norlandia De Boomkorf",
+      "Municipality": "Rotterdam",
+      "Address": "Rammelandstraat 10",
+      "ZipCode": "3042 EZ"
+    }
+  ]
+}
+</script>
+"""
+
+
+class TestScrapeNorlandiaVestigingen:
+    def _mock_get(self, url, **kwargs):
+        m = MagicMock()
+        m.status_code = 200
+        if "zoek-locatie/rotterdam" in url:
+            m.text = NORLANDIA_CITY_PAGE_HTML
+        else:
+            m.text = NORLANDIA_CITY_LIST_HTML
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get", side_effect=self._mock_get):
+            locations = scrape_norlandia_vestigingen()
+        assert len(locations) == 1
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get", side_effect=self._mock_get):
+            locations = scrape_norlandia_vestigingen()
+        loc = locations[0]
+        assert loc["name"] == "Norlandia De Boomkorf"
+        assert loc["street"] == "Rammelandstraat 10"
+        assert loc["postcode"] == "3042EZ"
+        assert loc["city"] == "Rotterdam"
+        assert loc["lat"] == pytest.approx(51.9348)
+        assert loc["lon"] == pytest.approx(4.4368)
+
+    def test_city_list_fetch_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_norlandia_vestigingen()
+        assert locations == []
+
+    def test_no_cities_returns_empty(self):
+        m = MagicMock()
+        m.status_code = 200
+        m.text = '<script>var model = {"Cities": []}</script>'
+        m.raise_for_status = MagicMock()
+        with patch("scrapers.branches.requests.get", return_value=m):
+            locations = scrape_norlandia_vestigingen()
+        assert locations == []
+
+
+# ── scrape_kindergarden_vestigingen ──────────────────────────────────────────
+
+KINDERGARDEN_JSON = {
+    "Locations": [
+        {
+            "Name": "Kindergarden Zwitserlandstraat",
+            "Address": "Zwitserlandstraat 6",
+            "City": "Almere",
+            "PostalCode": "1363 BE",
+            "Latitude": "52.3467762",
+            "Longitude": "5.152953",
+        },
+        {
+            "Name": "Kindergarden Hoofddorp",
+            "Address": "Polderplein 1",
+            "City": "Hoofddorp",
+            "PostalCode": "2132 BA",
+            "Latitude": "52.302",
+            "Longitude": "4.697",
+        },
+    ]
+}
+
+
+class TestScrapeKindergardenVestigingen:
+    def _mock_resp(self, data, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.json.return_value = data
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KINDERGARDEN_JSON)):
+            locations = scrape_kindergarden_vestigingen()
+        assert len(locations) == 2
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KINDERGARDEN_JSON)):
+            locations = scrape_kindergarden_vestigingen()
+        loc = locations[0]
+        assert loc["name"] == "Kindergarden Zwitserlandstraat"
+        assert loc["street"] == "Zwitserlandstraat 6"
+        assert loc["postcode"] == "1363BE"
+        assert loc["city"] == "Almere"
+        assert loc["lat"] == pytest.approx(52.3467762)
+        assert loc["lon"] == pytest.approx(5.152953)
+
+    def test_api_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("timeout")):
+            locations = scrape_kindergarden_vestigingen()
+        assert locations == []
+
+    def test_empty_locations_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp({"Locations": []})):
+            locations = scrape_kindergarden_vestigingen()
+        assert locations == []
+
+
+# ── scrape_ko_walcheren_vestigingen ──────────────────────────────────────────
+
+KO_WALCHEREN_HTML = """
+<html><body>
+<div class="location-teaser__inner">
+  <p class="location-teaser__title">Anker</p>
+  <div class="location-teaser__address">Schoutstraat 5, 4336HN Middelburg</div>
+</div>
+<div class="location-teaser__inner">
+  <p class="location-teaser__title">Boomhut</p>
+  <div class="location-teaser__address">Torenhofstraat 4, 4337JV Middelburg</div>
+</div>
+<div class="location-teaser__inner">
+  <p class="location-teaser__title">Geen adres</p>
+</div>
+</body></html>
+"""
+
+
+class TestScrapeKoWalcherenVestigingen:
+    def _mock_resp(self, html, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.text = html
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KO_WALCHEREN_HTML)):
+            locations = scrape_ko_walcheren_vestigingen()
+        assert len(locations) == 2
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KO_WALCHEREN_HTML)):
+            locations = scrape_ko_walcheren_vestigingen()
+        loc = next(l for l in locations if l["name"] == "Anker")
+        assert loc["street"] == "Schoutstraat 5"
+        assert loc["postcode"] == "4336HN"
+        assert loc["city"] == "Middelburg"
+
+    def test_card_without_address_skipped(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KO_WALCHEREN_HTML)):
+            locations = scrape_ko_walcheren_vestigingen()
+        names = [l["name"] for l in locations]
+        assert "Geen adres" not in names
+
+    def test_fetch_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("timeout")):
+            locations = scrape_ko_walcheren_vestigingen()
+        assert locations == []
+
+    def test_non_200_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
+            with patch("scrapers.branches.requests.Response.raise_for_status",
+                       side_effect=Exception("404")):
+                locations = scrape_ko_walcheren_vestigingen()
+        assert locations == []
+
+
+# ── scrape_mik_vestigingen ────────────────────────────────────────────────────
+
+MIK_HTML = """
+<html><body>
+<ul>
+  <li wire:key="abc123">
+    <a href="/locaties/bso-zo">
+      <h4>BSO &amp; Zo</h4>
+      <span>Lindenlaan 73 - 6241BB Bunde</span>
+    </a>
+  </li>
+  <li wire:key="def456">
+    <a href="/locaties/bso-aelse">
+      <h4>BSO Aelse</h4>
+      <span>Joannes Riviusstraat 4 - 6181BT Elsloo</span>
+    </a>
+  </li>
+  <li wire:key="ghi789">
+    <a href="/locaties/geen-postcode">
+      <h4>Geen postcode</h4>
+      <span>Gewoon een tekst zonder NL code</span>
+    </a>
+  </li>
+</ul>
+</body></html>
+"""
+
+
+class TestScrapeMikVestigingen:
+    def _mock_resp(self, html, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.text = html
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(MIK_HTML)):
+            locations = scrape_mik_vestigingen()
+        assert len(locations) == 2
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(MIK_HTML)):
+            locations = scrape_mik_vestigingen()
+        loc = next(l for l in locations if "Zo" in l["name"])
+        assert loc["street"] == "Lindenlaan 73"
+        assert loc["postcode"] == "6241BB"
+        assert loc["city"] == "Bunde"
+
+    def test_item_without_postcode_skipped(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(MIK_HTML)):
+            locations = scrape_mik_vestigingen()
+        names = [l["name"] for l in locations]
+        assert "Geen postcode" not in names
+
+    def test_fetch_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_mik_vestigingen()
+        assert locations == []
+
+
+# ── scrape_dak_vestigingen ────────────────────────────────────────────────────
+
+DAK_GEOJSON = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "name": "DAK De Wielen",
+                "address": "Wielsebaan 10",
+                "postcode": "4705PC",
+                "city": "Roosendaal",
+                "visible": True,
+            },
+            "geometry": {"type": "Point", "coordinates": [4.4672, 51.5314]},
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "name": "DAK Onzichtbaar",
+                "address": "Ergens 1",
+                "postcode": "1234AB",
+                "city": "Nergens",
+                "visible": False,  # must be skipped
+            },
+            "geometry": {"type": "Point", "coordinates": [4.0, 51.0]},
+        },
+    ],
+}
+
+
+class TestScrapeDakVestigingen:
+    def _mock_resp(self, data, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.json.return_value = data
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(DAK_GEOJSON)):
+            locations = scrape_dak_vestigingen()
+        assert len(locations) == 1
+
+    def test_invisible_feature_skipped(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(DAK_GEOJSON)):
+            locations = scrape_dak_vestigingen()
+        names = [l["name"] for l in locations]
+        assert "DAK Onzichtbaar" not in names
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(DAK_GEOJSON)):
+            locations = scrape_dak_vestigingen()
+        loc = locations[0]
+        assert loc["name"] == "DAK De Wielen"
+        assert loc["street"] == "Wielsebaan 10"
+        assert loc["postcode"] == "4705PC"
+        assert loc["city"] == "Roosendaal"
+        assert loc["lat"] == pytest.approx(51.5314)
+        assert loc["lon"] == pytest.approx(4.4672)
+
+    def test_fetch_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("timeout")):
+            locations = scrape_dak_vestigingen()
+        assert locations == []
+
+    def test_empty_features_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp({"type": "FeatureCollection", "features": []})):
+            locations = scrape_dak_vestigingen()
+        assert locations == []
+
+
+# ── scrape_wij_zijn_jong_vestigingen ─────────────────────────────────────────
+
+WIJ_ZIJN_JONG_JSON = {
+    "aMarkers": {
+        "1": {
+            "latitude": 51.4350,
+            "longitude": 5.4780,
+            "markerInfo": (
+                '<div class="gmaps2-markerinfo-title">BSO De Regenboog</div>'
+                '<div class="gmaps2-markerinfo-address">Regenbooglaan 5</div>'
+                '<div class="gmaps2-markerinfo-postal">5616EB</div>'
+                '<div class="gmaps2-markerinfo-city">Eindhoven</div>'
+            ),
+        },
+        "2": {
+            "latitude": 51.5000,
+            "longitude": 5.5000,
+            "markerInfo": "",  # empty — must be skipped
+        },
+    }
+}
+
+
+class TestScrapeWijZijnJongVestigingen:
+    def _mock_resp(self, data, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.json.return_value = data
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.post",
+                   return_value=self._mock_resp(WIJ_ZIJN_JONG_JSON)):
+            locations = scrape_wij_zijn_jong_vestigingen()
+        assert len(locations) == 1
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.post",
+                   return_value=self._mock_resp(WIJ_ZIJN_JONG_JSON)):
+            locations = scrape_wij_zijn_jong_vestigingen()
+        loc = locations[0]
+        assert loc["name"] == "BSO De Regenboog"
+        assert loc["street"] == "Regenbooglaan 5"
+        assert loc["postcode"] == "5616EB"
+        assert loc["city"] == "Eindhoven"
+        assert loc["lat"] == pytest.approx(51.4350)
+        assert loc["lon"] == pytest.approx(5.4780)
+
+    def test_post_error_returns_empty(self):
+        with patch("scrapers.branches.requests.post",
+                   side_effect=Exception("timeout")):
+            locations = scrape_wij_zijn_jong_vestigingen()
+        assert locations == []
+
+    def test_empty_markers_returns_empty(self):
+        with patch("scrapers.branches.requests.post",
+                   return_value=self._mock_resp({"aMarkers": {}})):
+            locations = scrape_wij_zijn_jong_vestigingen()
+        assert locations == []
+
+
+# ── scrape_wasko_vestigingen ──────────────────────────────────────────────────
+
+WASKO_SLUG_RESP = [{"slug": "locatie-a"}]
+WASKO_PAGE_HTML = """
+<html><body>
+<h1>Locatie A</h1>
+<h6>Locatie | Teststraat 42 | 1234AB Amsterdam | 020-1234567</h6>
+</body></html>
+"""
+
+
+class TestScrapeWaskoVestigingen:
+    def _mock_get(self, url, **kwargs):
+        m = MagicMock()
+        m.raise_for_status = MagicMock()
+        if "wp-json" in url and "&page=1&" in url:
+            # First REST page — return one slug
+            m.status_code = 200
+            m.json.return_value = WASKO_SLUG_RESP
+        elif "wp-json" in url:
+            # Page 2+ → 400 signals "no more pages"
+            m.status_code = 400
+            m.json.return_value = []
+        elif "locatie-a" in url:
+            m.status_code = 200
+            m.text = WASKO_PAGE_HTML
+        else:
+            m.status_code = 404
+            m.json.return_value = []
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get", side_effect=self._mock_get):
+            locations = scrape_wasko_vestigingen()
+        assert len(locations) == 1
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get", side_effect=self._mock_get):
+            locations = scrape_wasko_vestigingen()
+        loc = locations[0]
+        assert loc["name"] == "Locatie A"
+        assert loc["street"] == "Teststraat 42"
+        assert loc["postcode"] == "1234AB"
+        assert loc["city"] == "Amsterdam"
+
+    def test_rest_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("timeout")):
+            locations = scrape_wasko_vestigingen()
+        assert locations == []
+
+    def test_no_slugs_returns_empty(self):
+        m = MagicMock()
+        m.status_code = 400
+        m.json.return_value = []
+        m.raise_for_status = MagicMock()
+        with patch("scrapers.branches.requests.get", return_value=m):
+            locations = scrape_wasko_vestigingen()
+        assert locations == []
+
+
+# ── scrape_kanteel_vestigingen ────────────────────────────────────────────────
+
+KANTEEL_JS = (
+    "app.handleGoogleMaps('"
+    '{"locations":{"1":{"Name":"Kindcentrum De Peppels","Street":"Peppelseweg 3",'
+    '"PostalAndPlace":"5261 TC Vught","Geo":{"latitude":51.65,"longitude":5.29}}}}'
+    "')"
+)
+
+KANTEEL_PAGE_HTML = f"<html><body><script>{KANTEEL_JS}</script></body></html>"
+
+
+class TestScrapeKanteelVestigingen:
+    def _mock_resp(self, html, status=200):
+        m = MagicMock()
+        m.status_code = status
+        m.text = html
+        m.raise_for_status = MagicMock()
+        return m
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KANTEEL_PAGE_HTML)):
+            locations = scrape_kanteel_vestigingen()
+        assert len(locations) >= 1
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KANTEEL_PAGE_HTML)):
+            locations = scrape_kanteel_vestigingen()
+        loc = next(l for l in locations if "Peppels" in l["name"])
+        assert loc["street"] == "Peppelseweg 3"
+        assert loc["postcode"] == "5261TC"
+        assert loc["city"] == "Vught"
+        assert loc["lat"] == pytest.approx(51.65)
+        assert loc["lon"] == pytest.approx(5.29)
+
+    def test_fetch_error_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("SSL")):
+            locations = scrape_kanteel_vestigingen()
+        assert locations == []
+
+    def test_no_json_in_page_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("<html><body>Geen data</body></html>")):
+            locations = scrape_kanteel_vestigingen()
         assert locations == []
