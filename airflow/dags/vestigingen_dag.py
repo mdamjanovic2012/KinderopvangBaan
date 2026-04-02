@@ -29,7 +29,7 @@ with DAG(
     default_args={
         "retries": 1,
         "retry_delay": timedelta(minutes=10),
-        "execution_timeout": timedelta(minutes=30),
+        "execution_timeout": timedelta(hours=2),
     },
     tags=["enrichment", "geocoding", "branches"],
 ) as dag:

@@ -104,7 +104,7 @@ with DAG(
     scrape_branches = PythonOperator(
         task_id="scrape_branches",
         python_callable=run_branch_scrape,
-        execution_timeout=timedelta(minutes=30),
+        execution_timeout=timedelta(hours=2),
     )
 
     # Stap 2: job scrapers in batches van 5
