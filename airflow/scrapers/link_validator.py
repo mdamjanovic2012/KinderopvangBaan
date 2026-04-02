@@ -1,29 +1,39 @@
 """
-Link validator — controleert alle actieve job-URLs en blacklisted dode links.
+Link validator — async controle van alle actieve job-URLs.
 
-Wat doet het:
-1. Maak de blacklist-tabel aan als die niet bestaat
-2. Haal alle actieve, niet-verlopen jobs op
-3. HEAD-request voor elke URL (met User-Agent, volg redirects)
-4. Als de URL dood is (404, 410, DNS-fout, timeout) → blacklist + is_expired=True
-5. Als de URL redirect naar een homepage (geen /vacature/ in pad) → ook blacklist
+Aanpak:
+  • Server-side cursor: rijen worden in chunks van CHUNK_SIZE uit de DB gestream
+    zodat nooit de volledige dataset in geheugen staat.
+  • aiohttp + asyncio.gather: binnen elke chunk worden URLs parallel gecheckt
+    (max CONCURRENCY tegelijk, max DOMAIN_CONCURRENCY per domein).
+  • Dode URLs worden per chunk direct naar de DB geflushed (geen opbouw in geheugen).
 
 Definitie "dode URL":
-- HTTP 404, 410, 400, 403 (job-specifiek)
-- ConnectionError / Timeout
-- Redirect naar root / homepage zonder vacature-pad
+  • HTTP 404, 410, 400
+  • Redirect naar root / homepage (pad eindigt op bekende homepage-paden)
+  • DNS/verbindingsfout of timeout
 
-Statistieken worden teruggegeven als dict.
+Typische runtime: ~5 min voor 10 000 URLs bij CONCURRENCY=30.
 """
 
+import asyncio
 import logging
-import time
+from collections import defaultdict
+from urllib.parse import urlparse
 
-import requests
+import aiohttp
+from psycopg2.extras import execute_values
 
 from db.connection import get_connection
 
 logger = logging.getLogger(__name__)
+
+# ── Tuning ────────────────────────────────────────────────────────────────────
+
+CONCURRENCY      = 30    # max gelijktijdige HTTP-verbindingen (totaal)
+DOMAIN_CONCURRENCY = 3   # max per domein (beleefd crawlen)
+CHUNK_SIZE       = 500   # rijen per DB-fetch en async-batch
+REQUEST_TIMEOUT  = aiohttp.ClientTimeout(total=12, connect=5)
 
 HEADERS = {
     "User-Agent": (
@@ -34,78 +44,136 @@ HEADERS = {
     "Accept-Language": "nl-NL,nl;q=0.9",
 }
 
-# HTTP-statuscodes die een dode vacature-link aangeven
-DEAD_STATUS_CODES = {404, 410, 400}
+DEAD_STATUS_CODES = {400, 404, 410}
 
-# Paden die op een homepage-redirect wijzen (geen specifieke vacature)
-HOMEPAGE_PATHS = {"", "/", "/nl", "/nl/", "/vacatures", "/vacatures/", "/jobs", "/jobs/"}
+# Paden die wijzen op een homepage-redirect (geen specifieke vacature)
+HOMEPAGE_PATHS = frozenset({
+    "", "/", "/nl", "/nl/",
+    "/vacatures", "/vacatures/",
+    "/jobs", "/jobs/",
+    "/werken-bij", "/werken-bij/",
+    "/carriere", "/carriere/",
+})
 
+
+# ── Async HTTP check ──────────────────────────────────────────────────────────
+
+async def _check_url(
+    session: aiohttp.ClientSession,
+    global_sem: asyncio.Semaphore,
+    domain_sems: dict,
+    job_id: int,
+    url: str,
+) -> tuple[int, str, bool, str]:
+    """
+    Controleer één URL. Geeft (job_id, url, is_dead, reden) terug.
+    Gooit nooit een exception — fouten worden omgezet naar (True, reden).
+    """
+    domain = urlparse(url).netloc
+    if domain not in domain_sems:
+        domain_sems[domain] = asyncio.Semaphore(DOMAIN_CONCURRENCY)
+
+    async with global_sem, domain_sems[domain]:
+        try:
+            # Stap 1: HEAD-request (snel, geen body)
+            async with session.head(url, allow_redirects=True) as resp:
+                if resp.status == 405:
+                    # HEAD niet toegestaan → GET zonder body lezen
+                    async with session.get(url, allow_redirects=True) as gresp:
+                        status    = gresp.status
+                        final_url = str(gresp.url)
+                else:
+                    status    = resp.status
+                    final_url = str(resp.url)
+
+            if status in DEAD_STATUS_CODES:
+                return job_id, url, True, f"HTTP {status}"
+
+            # Stap 2: homepage-redirect detecteren
+            path = urlparse(final_url).path.rstrip("/")
+            if path in HOMEPAGE_PATHS:
+                return job_id, url, True, f"redirect naar homepage ({final_url})"
+
+            return job_id, url, False, ""
+
+        except aiohttp.ClientConnectorError:
+            return job_id, url, True, "DNS/verbindingsfout"
+        except asyncio.TimeoutError:
+            return job_id, url, True, "timeout (12s)"
+        except aiohttp.ClientResponseError as exc:
+            if exc.status in DEAD_STATUS_CODES:
+                return job_id, url, True, f"HTTP {exc.status}"
+            return job_id, url, False, ""
+        except Exception as exc:
+            logger.debug(f"[link-validator] onverwacht bij {url}: {exc}")
+            return job_id, url, False, ""  # twijfelgeval → niet blacklisten
+
+
+async def _process_chunk(
+    session: aiohttp.ClientSession,
+    global_sem: asyncio.Semaphore,
+    domain_sems: dict,
+    rows: list[tuple[int, str]],
+) -> list[tuple[int, str, str]]:
+    """
+    Controleer een chunk van (job_id, url)-paren parallel.
+    Geeft lijst van (job_id, url, reden) voor dode URLs terug.
+    """
+    tasks = [
+        asyncio.create_task(_check_url(session, global_sem, domain_sems, jid, url))
+        for jid, url in rows
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=False)
+    return [(jid, url, reason) for jid, url, is_dead, reason in results if is_dead]
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _ensure_blacklist_table(cur) -> None:
     cur.execute("""
         CREATE TABLE IF NOT EXISTS jobs_blacklisted_url (
-            id          SERIAL PRIMARY KEY,
-            url         TEXT    NOT NULL UNIQUE,
-            reason      TEXT    NOT NULL,
+            id             SERIAL PRIMARY KEY,
+            url            TEXT        NOT NULL UNIQUE,
+            reason         TEXT        NOT NULL,
             blacklisted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     """)
 
 
-def _is_dead_url(url: str) -> tuple[bool, str]:
-    """
-    Stuur een HEAD-request (val terug op GET bij 405).
-    Geeft (is_dead, reden) terug.
-    """
-    try:
-        resp = requests.head(
-            url,
-            headers=HEADERS,
-            timeout=10,
-            allow_redirects=True,
+def _flush_dead(conn, dead: list[tuple[int, str, str]]) -> None:
+    """Batch-update DB: blacklist + is_expired voor dode URLs."""
+    if not dead:
+        return
+    job_ids   = [d[0] for d in dead]
+    url_rows  = [(d[1], d[2]) for d in dead]
+
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            "INSERT INTO jobs_blacklisted_url (url, reason) VALUES %s "
+            "ON CONFLICT (url) DO NOTHING",
+            url_rows,
         )
-        # HEAD niet toegestaan → probeer GET
-        if resp.status_code == 405:
-            resp = requests.get(
-                url,
-                headers=HEADERS,
-                timeout=10,
-                allow_redirects=True,
-                stream=True,  # laad alleen headers, geen body
-            )
-            resp.close()
-
-        if resp.status_code in DEAD_STATUS_CODES:
-            return True, f"HTTP {resp.status_code}"
-
-        # Controleer of er naar homepage omgeleid is
-        final_path = resp.url.rstrip("/").split("?")[0]
-        from urllib.parse import urlparse
-        parsed = urlparse(final_path)
-        if parsed.path in HOMEPAGE_PATHS or parsed.path == "":
-            return True, f"redirect naar homepage ({resp.url})"
-
-        return False, ""
-
-    except requests.exceptions.ConnectionError as exc:
-        return True, f"DNS/connectiefout: {exc}"
-    except requests.exceptions.Timeout:
-        return True, "timeout (10s)"
-    except Exception as exc:
-        logger.warning(f"Onverwachte fout bij {url}: {exc}")
-        return False, ""  # twijfelgeval → niet blacklisten
+        cur.execute(
+            "UPDATE jobs_job SET is_expired = TRUE, updated_at = NOW() "
+            "WHERE id = ANY(%s)",
+            (job_ids,),
+        )
+    conn.commit()
+    logger.info(f"[link-validator] {len(dead)} dode URLs opgeslagen")
 
 
-def run_link_validation(batch_size: int = 200, sleep_between: float = 0.5) -> dict:
+# ── Hoofdfunctie ──────────────────────────────────────────────────────────────
+
+def run_link_validation() -> dict:
     """
-    Hoofdfunctie: controleer alle actieve job-URLs en blacklist dode links.
+    Controleer alle actieve, niet-verlopen job-URLs en blacklist dode links.
 
-    Args:
-        batch_size: aantal jobs per DB-batch (voor geheugen)
-        sleep_between: seconden wachten tussen requests (beleefd crawlen)
+    Gebruikt een server-side cursor om geheugengebruik te beperken:
+    slechts CHUNK_SIZE rijen staan tegelijk in geheugen.
 
     Returns:
-        dict met statistieken: checked, blacklisted, errors
+        dict met "checked", "blacklisted", "errors"
     """
     stats = {"checked": 0, "blacklisted": 0, "errors": 0}
 
@@ -114,51 +182,59 @@ def run_link_validation(batch_size: int = 200, sleep_between: float = 0.5) -> di
         conn.autocommit = False
         with conn.cursor() as cur:
             _ensure_blacklist_table(cur)
-            conn.commit()
+        conn.commit()
 
-            # Haal alle actieve, niet-verlopen jobs op die nog niet geblacklisted zijn
+        # Server-side cursor: DB streamt CHUNK_SIZE rijen per keer
+        with conn.cursor(name="lv_cursor") as cur:
+            cur.itersize = CHUNK_SIZE
             cur.execute("""
                 SELECT j.id, j.source_url
                 FROM   jobs_job j
-                WHERE  j.is_expired  = FALSE
-                  AND  j.is_active   = TRUE
-                  AND  j.source_url NOT IN (
-                           SELECT url FROM jobs_blacklisted_url
-                       )
+                WHERE  j.is_expired = FALSE
+                  AND  j.is_active  = TRUE
+                  AND  NOT EXISTS (
+                      SELECT 1 FROM jobs_blacklisted_url b
+                      WHERE  b.url = j.source_url
+                  )
                 ORDER BY j.id
             """)
-            rows = cur.fetchall()
 
-        logger.info(f"[link-validator] {len(rows)} URLs te controleren")
+            connector = aiohttp.TCPConnector(
+                limit=CONCURRENCY,
+                ttl_dns_cache=300,   # cache DNS voor 5 min
+                enable_cleanup_closed=True,
+            )
 
-        dead_ids: list[int] = []
-        dead_urls: list[tuple[str, str]] = []  # (url, reden)
+            async def run_all():
+                global_sem  = asyncio.Semaphore(CONCURRENCY)
+                domain_sems: dict = {}
 
-        for job_id, url in rows:
-            stats["checked"] += 1
-            is_dead, reason = _is_dead_url(url)
+                async with aiohttp.ClientSession(
+                    headers=HEADERS,
+                    timeout=REQUEST_TIMEOUT,
+                    connector=connector,
+                    connector_owner=False,
+                ) as session:
+                    while True:
+                        chunk = cur.fetchmany(CHUNK_SIZE)
+                        if not chunk:
+                            break
 
-            if is_dead:
-                logger.info(f"[link-validator] DOOD: {url} — {reason}")
-                dead_ids.append(job_id)
-                dead_urls.append((url, reason))
+                        stats["checked"] += len(chunk)
+                        logger.info(
+                            f"[link-validator] chunk {stats['checked']} URLs verwerkt..."
+                        )
 
-            time.sleep(sleep_between)
+                        dead = await _process_chunk(session, global_sem, domain_sems, chunk)
+                        if dead:
+                            _flush_dead(conn, dead)
+                            stats["blacklisted"] += len(dead)
 
-            # Tussentijds opslaan per 50 dode URLs (bij lange runs)
-            if len(dead_ids) >= 50:
-                _flush_dead(conn, dead_ids, dead_urls)
-                stats["blacklisted"] += len(dead_ids)
-                dead_ids.clear()
-                dead_urls.clear()
-
-        # Resterende opslaan
-        if dead_ids:
-            _flush_dead(conn, dead_ids, dead_urls)
-            stats["blacklisted"] += len(dead_ids)
+            asyncio.run(run_all())
+            connector.close()
 
     except Exception as exc:
-        logger.error(f"[link-validator] Kritieke fout: {exc}")
+        logger.error(f"[link-validator] kritieke fout: {exc}", exc_info=True)
         stats["errors"] += 1
         conn.rollback()
         raise
@@ -166,30 +242,8 @@ def run_link_validation(batch_size: int = 200, sleep_between: float = 0.5) -> di
         conn.close()
 
     logger.info(
-        f"[link-validator] Klaar — "
+        f"[link-validator] klaar — "
         f"gecontroleerd: {stats['checked']}, "
         f"geblacklisted: {stats['blacklisted']}"
     )
     return stats
-
-
-def _flush_dead(conn, job_ids: list[int], url_reasons: list[tuple[str, str]]) -> None:
-    """Sla dode URLs op in blacklist en markeer jobs als verlopen."""
-    with conn.cursor() as cur:
-        # Voeg toe aan blacklist (sla duplicaten over)
-        for url, reason in url_reasons:
-            cur.execute("""
-                INSERT INTO jobs_blacklisted_url (url, reason)
-                VALUES (%s, %s)
-                ON CONFLICT (url) DO NOTHING
-            """, (url, reason))
-
-        # Markeer jobs als verlopen
-        cur.execute("""
-            UPDATE jobs_job
-            SET    is_expired = TRUE,
-                   updated_at = NOW()
-            WHERE  id = ANY(%s)
-        """, (job_ids,))
-
-    conn.commit()
