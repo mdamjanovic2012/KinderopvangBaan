@@ -238,6 +238,22 @@ class BaseScraper:
                 unique_locations = {j["location_name"] for j in jobs if j.get("location_name")}
                 geo_cache = geocode_locations(cur, unique_locations)
 
+                # Verrijk met precieze vestiging-coördinaten als fallback
+                try:
+                    from scrapers.branches import match_vestiging
+                    for job in jobs:
+                        loc_name = job.get("location_name", "")
+                        city = job.get("city", "")
+                        existing_geo = geo_cache.get(loc_name, {})
+                        # Alleen verrijken als we geen postcode-niveau precisie hebben
+                        if not existing_geo.get("postcode"):
+                            vestiging = match_vestiging(cur, self.company_slug, loc_name, city)
+                            if vestiging:
+                                geo_cache[loc_name] = vestiging
+                                logger.debug(f"[{self.company_slug}] Vestiging match: {loc_name} → {vestiging.get('city')}")
+                except Exception as exc:
+                    logger.debug(f"[{self.company_slug}] Vestiging enrichment overgeslagen: {exc}")
+
                 # Huidige actieve source_urls in DB
                 cur.execute(
                     "SELECT source_url FROM jobs_job WHERE company_id = %s AND is_expired = FALSE",
@@ -277,7 +293,7 @@ class BaseScraper:
                     loc_name = job.get("location_name", "")
                     geo = geo_cache.get(loc_name, {})
                     city = geo.get("city") or job.get("city", "")
-                    postcode = geo.get("postcode", "")
+                    postcode = geo.get("postcode") or job.get("postcode", "")
                     lon = geo.get("lon")
                     lat = geo.get("lat")
 

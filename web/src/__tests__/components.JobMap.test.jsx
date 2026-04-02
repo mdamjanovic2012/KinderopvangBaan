@@ -2,8 +2,9 @@
  * Tests for src/components/JobMap.jsx
  */
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import JobMap from "@/components/JobMap";
+import Supercluster from "supercluster";
 
 const makeJob = (overrides = {}) => ({
   id: 1,
@@ -129,6 +130,92 @@ describe("JobMap — cluster interaction", () => {
     const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
     render(<JobMap jobs={jobs} />);
     expect(() => fireEvent.click(screen.getByTestId("map-marker"))).not.toThrow();
+  });
+
+  it("cluster click uses getClusterExpansionZoom (not getLeaves+fitBounds for expandable cluster)", () => {
+    // Verifies the fix: cluster click must call getClusterExpansionZoom,
+    // and only call getLeaves when expansionZoom > maxZoom (terminal cluster).
+    const expansionZoomSpy = jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom");
+    const getLeavesSpy = jest.spyOn(Supercluster.prototype, "getLeaves");
+
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    // expansionZoom = 10 (< maxZoom 14) → should flyTo, not getLeaves
+    expect(expansionZoomSpy).toHaveBeenCalled();
+    expect(getLeavesSpy).not.toHaveBeenCalled();
+
+    expansionZoomSpy.mockRestore();
+    getLeavesSpy.mockRestore();
+  });
+
+  it("cluster click calls flyTo with correct zoom from getClusterExpansionZoom", () => {
+    // getClusterExpansionZoom returns 10 (per mock), flyTo must be called with zoom: 10
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+
+    const flyToSpy = jest.fn();
+    jest.spyOn(React, "useImperativeHandle").mockImplementation((ref, init) => {
+      if (ref) {
+        const handle = init();
+        handle.flyTo = flyToSpy;
+        ref.current = handle;
+      }
+    });
+
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    // flyTo should have been called with zoom capped at min(10, 20) = 10
+    expect(flyToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ zoom: 10 })
+    );
+
+    React.useImperativeHandle.mockRestore();
+  });
+
+  it("terminal cluster (all same location) shows list popup instead of flyTo", () => {
+    // When expansionZoom > maxZoom (15 > 14), all jobs are at the same point.
+    // Expected: getLeaves called, cluster-list-popup rendered, flyTo NOT called.
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) =>
+      makeJob({ id: i + 1, title: `Job ${i + 1}` })
+    );
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
+  });
+
+  it("terminal cluster popup shows job titles", () => {
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) =>
+      makeJob({ id: i + 1, title: `Vacature ${i + 1}` })
+    );
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+
+    // getLeaves returns all _points; each has properties.job with the title
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
+  });
+
+  it("terminal cluster popup closes on close button click", () => {
+    jest.spyOn(Supercluster.prototype, "getClusterExpansionZoom").mockReturnValue(15);
+
+    const jobs = Array.from({ length: 5 }, (_, i) => makeJob({ id: i + 1 }));
+    render(<JobMap jobs={jobs} />);
+    fireEvent.click(screen.getByTestId("map-marker"));
+    expect(screen.getByTestId("cluster-list-popup")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("popup-close"));
+    expect(screen.queryByTestId("cluster-list-popup")).not.toBeInTheDocument();
+
+    Supercluster.prototype.getClusterExpansionZoom.mockRestore();
   });
 });
 

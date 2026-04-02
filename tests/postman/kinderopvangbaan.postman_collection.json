@@ -511,6 +511,593 @@
       ]
     },
     {
+      "name": "Scraped Companies",
+      "item": [
+        {
+          "name": "Norlandia company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=norlandia"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kober company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kober"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kibeo company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kibeo"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Samenwerkende KO company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=samenwerkende-ko"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Doomijn company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=doomijn"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Spring company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=spring"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gro-up company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=gro-up"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "TintelTuin company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=tinteltuin"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dak company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=dak"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CompaNanny company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=compananny"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Prokino company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=prokino"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sinne company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=sinne"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Humankind company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=humankind"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KION company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kion"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => { const body = pm.response.json(); pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wij zijn JONG company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=wij-zijn-jong"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => { const body = pm.response.json(); pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2Samen company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=2samen"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kids First company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kids-first"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MIK company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=mik"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kindergarden company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kindergarden"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bink company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=bink"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kinderwoud company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kinderwoud"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SKA company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=ska"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wasko company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=wasko"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Op Stoom company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=op-stoom"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KO Walcheren company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=ko-walcheren"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Kanteel company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=kanteel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dichtbij company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=dichtbij"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "BijdeHandjes company accessible",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/jobs/companies/?slug=bijdehandjes"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns array or paginated', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(Array.isArray(body) || Array.isArray(body.results)).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Workers",
       "item": [
         {
