@@ -899,6 +899,306 @@ def scrape_kinderdam_vestigingen() -> list[dict]:
     return locations
 
 
+def scrape_dak_vestigingen() -> list[dict]:
+    """
+    DAK kindercentra (dakkindercentra.nl) — GeoJSON endpoint.
+    The website's Google Maps widget loads a static GeoJSON file with all locations,
+    coordinates and full addresses.
+    """
+    url = "https://www.dakkindercentra.nl/wp-content/uploads/dakkindercentra/locations.geojson"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning(f"[dak-branches] GeoJSON fetch failed: {exc}")
+        return []
+
+    seen: set[str] = set()
+    locations = []
+    for feature in data.get("features", []):
+        props = feature.get("properties", {})
+        if not props.get("visible", True):
+            continue
+
+        name     = (props.get("name") or "").strip()
+        address  = (props.get("address") or "").strip()
+        postcode = (props.get("postcode") or "").replace(" ", "").strip()
+        city     = (props.get("city") or "").strip()
+
+        # address is often "Street 1, 1234AB City" — extract street part
+        street = ""
+        if address:
+            parts = address.split(",")
+            if parts:
+                street = parts[0].strip()
+
+        coords = feature.get("geometry", {}).get("coordinates", [])
+        lon = float(coords[0]) if len(coords) >= 2 else None
+        lat = float(coords[1]) if len(coords) >= 2 else None
+
+        if not name or not (postcode or city):
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lon": lon, "lat": lat,
+        })
+
+    logger.info(f"[dak-branches] {len(locations)} locations from GeoJSON")
+    return locations
+
+
+def scrape_wij_zijn_jong_vestigingen() -> list[dict]:
+    """
+    Wij zijn JONG / Korein (korein.nl) — JSON POST endpoint.
+    The map widget POSTs to /vestigingen/output:json/module:988 and returns
+    all 105 locations with lat/lon and markerInfo HTML containing the address.
+    """
+    url = "https://www.korein.nl/vestigingen/output:json/module:988"
+    try:
+        resp = requests.post(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.warning(f"[wij-zijn-jong-branches] POST failed: {exc}")
+        return []
+
+    markers = data.get("aMarkers", {})
+    locations = []
+    seen: set[str] = set()
+
+    for marker in markers.values():
+        html = marker.get("markerInfo", "")
+        soup = BeautifulSoup(html, "html.parser")
+
+        name_el    = soup.select_one(".gmaps2-markerinfo-title")
+        street_el  = soup.select_one(".gmaps2-markerinfo-address")
+        postal_el  = soup.select_one(".gmaps2-markerinfo-postal")
+        city_el    = soup.select_one(".gmaps2-markerinfo-city")
+
+        name     = (name_el.get_text(strip=True)   if name_el    else "").strip()
+        street   = (street_el.get_text(strip=True)  if street_el  else "").strip()
+        postcode = (postal_el.get_text(strip=True)   if postal_el  else "").replace(" ", "").strip()
+        city     = (city_el.get_text(strip=True)    if city_el    else "").strip()
+        lat      = marker.get("latitude")
+        lon      = marker.get("longitude")
+
+        if not name or not (postcode or city):
+            continue
+        key = f"{name}|{postcode}"
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+            "lat": lat, "lon": lon,
+        })
+
+    logger.info(f"[wij-zijn-jong-branches] {len(locations)} locations from JSON API")
+    return locations
+
+
+def scrape_wasko_vestigingen() -> list[dict]:
+    """
+    Wasko (wasko.nl) — WP REST API + individual page HTML.
+    The REST API /wp/v2/locatie gives all slugs; the individual pages
+    have an <h6> tag: "Locatie | street | postcode city | tel".
+    """
+    # Fetch all slugs via REST API (pagination)
+    slugs: list[str] = []
+    page = 1
+    while True:
+        try:
+            resp = requests.get(
+                f"https://wasko.nl/wp-json/wp/v2/locatie?per_page=100&page={page}&_fields=slug",
+                headers=SCRAPER_HEADERS, timeout=20,
+            )
+            if resp.status_code == 400:
+                break  # no more pages
+            resp.raise_for_status()
+            batch = resp.json()
+            if not batch:
+                break
+            slugs.extend(item["slug"] for item in batch)
+            page += 1
+        except Exception as exc:
+            logger.warning(f"[wasko-branches] REST page {page} failed: {exc}")
+            break
+
+    locations = []
+    seen: set[str] = set()
+
+    for slug in slugs:
+        try:
+            resp = requests.get(
+                f"https://wasko.nl/locatie/{slug}/",
+                headers=SCRAPER_HEADERS, timeout=15,
+            )
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # Address is in <h6>: "Locatie | street | postcode city | tel"
+            h6 = soup.find("h6", string=re.compile(r"Locatie", re.I))
+            if not h6:
+                continue
+
+            parts = [p.strip() for p in h6.get_text(separator="|").split("|") if p.strip()]
+            # parts[0]="Locatie", parts[1]=street, parts[2]="postcode city", ...
+            h1 = soup.find("h1")
+            name = h1.get_text(strip=True) if h1 else slug
+
+            street = parts[1] if len(parts) > 1 else ""
+            postcode_city = parts[2] if len(parts) > 2 else ""
+
+            pc_match = POSTCODE_RE.search(postcode_city)
+            if not pc_match:
+                continue
+            postcode = pc_match.group(1).replace(" ", "")
+            city = postcode_city[pc_match.end():].strip()
+
+            key = f"{name}|{postcode}"
+            if key in seen:
+                continue
+            seen.add(key)
+            locations.append({
+                "name": name, "street": street,
+                "postcode": postcode, "city": city,
+            })
+            time.sleep(0.3)
+        except Exception as exc:
+            logger.debug(f"[wasko-branches] {slug} failed: {exc}")
+
+    logger.info(f"[wasko-branches] {len(locations)} locations scraped")
+    return locations
+
+
+def scrape_kanteel_vestigingen() -> list[dict]:
+    """
+    Kanteel (kanteel.nl) — embedded JSON in city list pages.
+    Each city page (/locaties/{city}?weergave=lijst) embeds a JSON object
+    passed to handleGoogleMaps() with all locations, addresses and coordinates.
+    """
+    cities = ["den-bosch", "uden", "zaltbommel"]
+    locations = []
+    seen: set[str] = set()
+
+    for city in cities:
+        url = f"https://www.kanteel.nl/locaties/{city}?weergave=lijst"
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20, verify=False)
+            resp.raise_for_status()
+            m = re.search(r"handleGoogleMaps\('(.+?)'\)", resp.text, re.DOTALL)
+            if not m:
+                continue
+
+            # Kanteel escapes single quotes as \u0027 — decode unicode escapes
+            raw = m.group(1).encode("utf-8").decode("unicode_escape")
+            data = __import__("json").loads(raw)
+        except Exception as exc:
+            logger.warning(f"[kanteel-branches] {city} failed: {exc}")
+            continue
+
+        for loc_data in data.get("locations", {}).values():
+            name    = (loc_data.get("Name") or "").strip()
+            street  = (loc_data.get("Street") or "").strip()
+            postal  = (loc_data.get("PostalAndPlace") or "").strip()
+            geo     = loc_data.get("Geo") or {}
+            lat     = geo.get("latitude")
+            lon     = geo.get("longitude")
+
+            pc_match = POSTCODE_RE.search(postal)
+            if not pc_match:
+                continue
+            postcode = pc_match.group(1).replace(" ", "")
+            city_name = postal[pc_match.end():].strip()
+
+            if not name:
+                continue
+            key = f"{name}|{postcode}"
+            if key in seen:
+                continue
+            seen.add(key)
+            locations.append({
+                "name": name, "street": street,
+                "postcode": postcode, "city": city_name,
+                "lat": lat, "lon": lon,
+            })
+
+    logger.info(f"[kanteel-branches] {len(locations)} locations from embedded JSON")
+    return locations
+
+
+def scrape_gro_up_vestigingen() -> list[dict]:
+    """
+    Gro-up (gro-up.nl) — sitemap + individual page HTML.
+    The sitemap lists individual /locaties/<slug>/ pages; each page has
+    a .contact-block__address element with the address.
+    Only kinderopvang locations are included (filter out buurtwerk/kraamzorg/jeugdhulp).
+    """
+    EXCLUDE = {"buurtwerk", "kraamzorg", "jeugdhulp", "actueel"}
+
+    try:
+        resp = requests.get("https://www.gro-up.nl/sitemap.xml", headers=SCRAPER_HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "xml")
+        urls = [loc.get_text() for loc in soup.find_all("loc")]
+    except Exception as exc:
+        logger.warning(f"[gro-up-branches] sitemap failed: {exc}")
+        return []
+
+    loc_urls = [
+        u for u in urls
+        if "/locaties/" in u and u.rstrip("/").count("/") >= 4
+        and not any(ex in u for ex in EXCLUDE)
+    ]
+    logger.info(f"[gro-up-branches] {len(loc_urls)} location URLs from sitemap")
+
+    locations = []
+    seen: set[str] = set()
+
+    for url in loc_urls:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=15)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            h1 = soup.find("h1")
+            name = h1.get_text(strip=True) if h1 else ""
+
+            addr_el = soup.select_one(".contact-block__address")
+            if not addr_el or not name:
+                continue
+
+            text = addr_el.get_text(separator="\n")
+            street, postcode, city = _parse_address_block(text)
+            if not postcode and not city:
+                continue
+
+            key = f"{name}|{postcode or city}"
+            if key in seen:
+                continue
+            seen.add(key)
+            locations.append({
+                "name": name, "street": street,
+                "postcode": postcode, "city": city,
+            })
+            time.sleep(0.2)
+        except Exception as exc:
+            logger.debug(f"[gro-up-branches] {url} failed: {exc}")
+
+    logger.info(f"[gro-up-branches] {len(locations)} locations scraped")
+    return locations
+
+
 # ── Company configs ───────────────────────────────────────────────────────────
 
 def _generic(slug: str, *sites: str) -> dict:
@@ -931,10 +1231,7 @@ COMPANY_CONFIGS = {
         "norlandia",
         "https://www.norlandia.nl",
     ),
-    "gro-up": _generic(
-        "gro-up",
-        "https://www.gro-up.nl",
-    ),
+    "gro-up": {"scraper": scrape_gro_up_vestigingen},
     "kibeo": _generic(
         "kibeo",
         "https://www.kibeo.nl",
@@ -952,10 +1249,7 @@ COMPANY_CONFIGS = {
         "bink",
         "https://www.debinkopmeer.nl",     # binkopvang.nl redirects here
     ),
-    "dak": _generic(
-        "dak",
-        "https://www.dakkindercentra.nl",
-    ),
+    "dak": {"scraper": scrape_dak_vestigingen},
     "dichtbij": _generic(
         "dichtbij",
         "https://www.dichtbijkinderopvang.nl",
@@ -986,19 +1280,9 @@ COMPANY_CONFIGS = {
         "2samen",
         "https://www.2samen.nl",
     ),
-    "wasko": _generic(
-        "wasko",
-        "https://www.wasko.nl",
-    ),
-    "wij-zijn-jong": _generic(
-        "wij-zijn-jong",
-        "https://www.korein.nl",
-        "https://www.wijzijnjong.nl",
-    ),
-    "kanteel": _generic(
-        "kanteel",
-        "https://www.kanteel.nl",
-    ),
+    "wasko":       {"scraper": scrape_wasko_vestigingen},
+    "wij-zijn-jong": {"scraper": scrape_wij_zijn_jong_vestigingen},
+    "kanteel":     {"scraper": scrape_kanteel_vestigingen},
     "ko-walcheren": _generic(
         "ko-walcheren",
         "https://www.kinderopvangwalcheren.nl",
@@ -1012,13 +1296,63 @@ COMPANY_CONFIGS = {
 
 # ── Main run function ─────────────────────────────────────────────────────────
 
+def _locations_from_jobs(cur, company_slug: str) -> list[dict]:
+    """
+    Fallback: derive locations from already-scraped job data.
+
+    When the branch scraper finds nothing (site is AJAX-only, DNS dead, etc.),
+    we extract distinct location_name values from jobs stored for that company.
+    These are geocoded via PDOK and saved as approximate branches.
+
+    Only location_names with a valid postcode or city are usable.
+    """
+    # Map company slug → company name in jobs table (slug matches Company.slug)
+    cur.execute("""
+        SELECT DISTINCT j.location_name, j.city, j.postcode
+        FROM   jobs_job     j
+        JOIN   jobs_company c ON c.id = j.company_id
+        WHERE  c.slug        = %s
+          AND  j.is_expired  = FALSE
+          AND  j.location_name <> ''
+        ORDER  BY j.location_name
+    """, (company_slug,))
+    rows = cur.fetchall()
+    if not rows:
+        return []
+
+    locations = []
+    seen: set[str] = set()
+    for location_name, city, postcode in rows:
+        pc = (postcode or "").replace(" ", "").upper()
+        if not POSTCODE_RE.match(pc):
+            pc = ""
+        city = (city or "").strip()
+        key = f"{location_name}|{pc or city}"
+        if key in seen or not (pc or city):
+            continue
+        seen.add(key)
+        locations.append({
+            "name": location_name,
+            "street": "",
+            "postcode": pc,
+            "city": city,
+        })
+
+    logger.info(f"[branches] {company_slug}: {len(locations)} locations from job data (fallback)")
+    return locations
+
+
 def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
     """
     Scrape branches for the given companies (or all if None).
+
+    For each company:
+      1. Run the configured scraper (custom or generic HTML)
+      2. If it returns 0 locations, fall back to distinct location_names
+         from already-scraped jobs in the DB (geocoded via PDOK)
+
     Geocodes each branch and stores it in the jobs_vestiging table.
     Returns per-company statistics.
-
-    Note: the jobs_vestiging table is created by Django migration 0007_vestiging.
     """
     if company_slugs is None:
         company_slugs = list(COMPANY_CONFIGS.keys())
@@ -1041,8 +1375,14 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                     locations = config["scraper"]()
                 except Exception as exc:
                     logger.error(f"[branches] {slug} scraper error: {exc}")
+                    locations = []
                     stats[slug] = {"error": str(exc)}
-                    continue
+
+                # Fallback: pull locations from job data when scraper found nothing
+                fallback_used = False
+                if not locations:
+                    locations = _locations_from_jobs(cur, slug)
+                    fallback_used = bool(locations)
 
                 inserted = 0
                 for loc in locations:
@@ -1066,8 +1406,11 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                         cur.execute("ROLLBACK TO SAVEPOINT sp_upsert")
                         logger.warning(f"[branches] Upsert failed for {loc.get('name')}: {exc}")
 
-                stats[slug] = {"locations": inserted}
-                logger.info(f"[branches] {slug}: {inserted} branches saved")
+                stats[slug] = {"locations": inserted, "fallback": fallback_used}
+                logger.info(
+                    f"[branches] {slug}: {inserted} branches saved"
+                    + (" (from job data)" if fallback_used else "")
+                )
 
     finally:
         conn.close()
