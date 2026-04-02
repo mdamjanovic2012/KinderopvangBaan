@@ -17,11 +17,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapers.branches import (
     _parse_address_block,
+    _parse_comma_address,
     upsert_vestiging,
     match_vestiging,
     run_vestigingen_scrape,
     scrape_partou_vestigingen,
     scrape_kinderdam_vestigingen,
+    scrape_spring_vestigingen,
+    scrape_prokino_vestigingen,
+    scrape_kober_vestigingen,
+    scrape_kion_vestigingen,
     scrape_compananny_vestigingen,
     scrape_tinteltuin_vestigingen,
     scrape_sinne_vestigingen,
@@ -33,6 +38,24 @@ from scrapers.branches import (
 
 
 # ── _parse_address_block ──────────────────────────────────────────────────────
+
+class TestParseCommaAddress:
+    def test_comma_separated_format(self):
+        street, postcode, city = _parse_comma_address("Pieter de Hooghstraat 6, 5854 ES, Bergen")
+        assert street == "Pieter de Hooghstraat 6"
+        assert postcode == "5854ES"
+        assert city == "Bergen"
+
+    def test_postcode_city_no_comma(self):
+        street, postcode, city = _parse_comma_address("Weversdries 3, 4851 BD Ulvenhout")
+        assert postcode == "4851BD"
+        assert city == "Ulvenhout"
+
+    def test_no_postcode_returns_empty(self):
+        street, postcode, city = _parse_comma_address("Geen postcode hier")
+        assert postcode == ""
+        assert city == ""
+
 
 class TestParseAddressBlock:
     def test_full_address(self):
@@ -116,6 +139,26 @@ class TestUpsertVestiging:
             upsert_vestiging(cur, "test", "KDV Test", "", "", "Amsterdam")
         sql = cur.execute.call_args[0][0]
         assert "created_at" in sql
+
+    def test_direct_lon_lat_skips_pdok(self):
+        """Als lon/lat meegestuurd worden, moet PDOK NIET aangeroepen worden."""
+        cur = self._make_cur()
+        with patch("scrapers.branches._geocode_via_pdok") as mock_pdok:
+            upsert_vestiging(cur, "test", "KDV Direct", "Straat 1", "3012EV", "Rotterdam",
+                             lon=4.48, lat=51.92)
+        mock_pdok.assert_not_called()
+        sql = cur.execute.call_args[0][0]
+        assert "ST_MakePoint" in sql
+
+    def test_direct_lon_lat_used_in_insert(self):
+        """Directe lon/lat worden als parameters doorgegeven aan ST_MakePoint."""
+        cur = self._make_cur()
+        with patch("scrapers.branches._geocode_via_pdok"):
+            upsert_vestiging(cur, "test", "KDV Direct", "Straat 1", "3012EV", "Rotterdam",
+                             lon=4.48, lat=51.92)
+        params = cur.execute.call_args[0][1]
+        assert 4.48 in params
+        assert 51.92 in params
 
 
 class TestRunVestigingSavepoints:
@@ -467,12 +510,24 @@ class TestScrapePartouVestigingen:
 
 # ── scrape_kinderdam_vestigingen ──────────────────────────────────────────────
 
-KINDERDAM_HTML = """<html><body>
-<script type="application/ld+json">
-{"@type": "LocalBusiness", "name": "Kinderdam BSO IJssel",
- "address": {"streetAddress": "IJssellaan 2", "postalCode": "2909BC", "addressLocality": "Capelle aan den IJssel"}}
-</script>
-</body></html>"""
+# Kinderdam uses Next.js App Router (flight protocol): self.__next_f.push([1, "..."])
+# The payload is double-escaped JSON; "locations" array has items with name + kdv/bso/po sub-objects.
+_KINDERDAM_ITEM = (
+    r'{"name":"De Kijkdoos","image":{},"region":"rotterdam-feijenoord","wijk":"wijk-hillesluis",'
+    r'"ssg":{},"kdv":{"address":"Walravenstraat 31","postalCode":"3074 NL",'
+    r'"city":"Rotterdam","latitude":51.8926783,"longitude":4.5099081,"slug":"kdv"},'
+    r'"po":{},"bso":{},"id":"abc"}'
+)
+_KINDERDAM_FLIGHT_PAYLOAD = (
+    '{"defaultCareType":"kdv","locations":[' + _KINDERDAM_ITEM + '],"total":1}'
+)
+# Encode as JS string escape (double-escape quotes)
+_KINDERDAM_ENCODED = _KINDERDAM_FLIGHT_PAYLOAD.replace('"', '\\"')
+KINDERDAM_FLIGHT_HTML = (
+    f'<html><body>'
+    f'<script>self.__next_f.push([1,"{_KINDERDAM_ENCODED}"])</script>'
+    f'</body></html>'
+)
 
 
 class TestScrapeKinderdamVestigingen:
@@ -483,17 +538,32 @@ class TestScrapeKinderdamVestigingen:
         resp.raise_for_status = MagicMock()
         return resp
 
-    def test_jsonld_location_extracted(self):
-        with patch("scrapers.branches.requests.get", return_value=self._mock_resp(KINDERDAM_HTML)):
+    def test_flight_protocol_location_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KINDERDAM_FLIGHT_HTML)):
             locations = scrape_kinderdam_vestigingen()
         assert len(locations) >= 1
         loc = locations[0]
-        assert loc["name"] == "Kinderdam BSO IJssel"
-        assert loc["city"] == "Capelle aan den IJssel"
-        assert loc["postcode"] == "2909BC"
+        assert loc["name"] == "De Kijkdoos"
+        assert loc["city"] == "Rotterdam"
+        assert loc["postcode"] == "3074NL"
+
+    def test_coordinates_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KINDERDAM_FLIGHT_HTML)):
+            locations = scrape_kinderdam_vestigingen()
+        loc = locations[0]
+        assert loc["lat"] == pytest.approx(51.8926783)
+        assert loc["lon"] == pytest.approx(4.5099081)
 
     def test_returns_empty_on_error(self):
         with patch("scrapers.branches.requests.get", side_effect=Exception("timeout")):
+            locations = scrape_kinderdam_vestigingen()
+        assert locations == []
+
+    def test_returns_empty_on_404(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
             locations = scrape_kinderdam_vestigingen()
         assert locations == []
 
@@ -556,12 +626,13 @@ class TestScrapeGenericVestigingen:
 
 
 # ── scrape_compananny_vestigingen ─────────────────────────────────────────────
+# CompaNanny embeds JS object literal (unquoted keys, single-quoted values)
 
 COMPANANNY_JS_HTML = """<html><body>
 <script>
 var locations = [
-  {"name": "CompaNanny Amsterdam", "address": "Teststraat 1", "zipcode": "1091RV, Amsterdam"},
-  {"name": "CompaNanny Haarlem",   "address": "Dorpsweg 5",   "zipcode": "2011AB, Haarlem"}
+  {name: 'Amstel', lon: '4.90758', lat: '52.3577', address: 'Swammerdamstraat 40HS', zipcode: '1091 RV, Amsterdam'},
+  {name: 'Haarlem Noord', lon: '4.63530', lat: '52.3905', address: 'Brouwersvaart 62', zipcode: '2015 BM, Haarlem'}
 ];
 </script>
 </body></html>"""
@@ -583,17 +654,25 @@ class TestScrapeCompanannyVestigingen:
             locations = scrape_compananny_vestigingen()
         assert len(locations) == 2
         names = [l["name"] for l in locations]
-        assert "CompaNanny Amsterdam" in names
-        assert "CompaNanny Haarlem" in names
+        assert "Amstel" in names
+        assert "Haarlem Noord" in names
 
-    def test_postcode_extracted_from_zipcode(self):
+    def test_postcode_and_city_extracted(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(COMPANANNY_JS_HTML)):
             locations = scrape_compananny_vestigingen()
-        ams = next(l for l in locations if "Amsterdam" in l["name"])
+        ams = next(l for l in locations if "Amstel" in l["name"])
         assert ams["postcode"] == "1091RV"
         assert ams["city"] == "Amsterdam"
-        assert ams["street"] == "Teststraat 1"
+        assert ams["street"] == "Swammerdamstraat 40HS"
+
+    def test_coordinates_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(COMPANANNY_JS_HTML)):
+            locations = scrape_compananny_vestigingen()
+        ams = next(l for l in locations if "Amstel" in l["name"])
+        assert ams["lon"] == pytest.approx(4.90758)
+        assert ams["lat"] == pytest.approx(52.3577)
 
     def test_404_returns_empty(self):
         with patch("scrapers.branches.requests.get",
@@ -601,7 +680,7 @@ class TestScrapeCompanannyVestigingen:
             locations = scrape_compananny_vestigingen()
         assert locations == []
 
-    def test_no_js_array_returns_empty(self):
+    def test_no_js_object_literal_returns_empty(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(COMPANANNY_NO_JS_HTML)):
             locations = scrape_compananny_vestigingen()
@@ -615,23 +694,22 @@ class TestScrapeCompanannyVestigingen:
 
 
 # ── scrape_tinteltuin_vestigingen ─────────────────────────────────────────────
+# TintelTuin embeds a 'mapdata' JSON array with addresses.map.lat/lng
 
 TINTELTUIN_JS_HTML = """<html><body>
 <script>
-var locations = [
-  {"naam": "TintelTuin Utrecht", "adres": "Bolstraat 5, 3511GH Utrecht"},
-  {"naam": "TintelTuin Nieuwegein", "adres": "Stadsplein 12, 3431BX Nieuwegein"}
+var mapdata = [
+  {"post_title": "Campus Olympia",
+   "addresses": {"street_name": "Willem Prinsplein 4", "postcode": "1509AX", "city": "Zaandam",
+                 "map": {"lat": 52.4639428, "lng": 4.8252441}}},
+  {"post_title": "Het Hoekje",
+   "addresses": {"street_name": "Calkoenstraat 15", "postcode": "1121XA", "city": "Landsmeer",
+                 "map": {"lat": 52.4305831, "lng": 4.9157004}}}
 ];
 </script>
 </body></html>"""
 
-TINTELTUIN_ALT_VAR_HTML = """<html><body>
-<script>
-var locaties = [
-  {"name": "TintelTuin Den Haag", "adres": "Groenmarkt 1, 2511BM Den Haag"}
-];
-</script>
-</body></html>"""
+TINTELTUIN_NO_MAPDATA_HTML = """<html><body><p>Geen locaties.</p></body></html>"""
 
 
 class TestScrapeTinteltuinVestigingen:
@@ -642,31 +720,40 @@ class TestScrapeTinteltuinVestigingen:
         resp.raise_for_status = MagicMock()
         return resp
 
-    def test_js_locations_extracted(self):
+    def test_mapdata_locations_extracted(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(TINTELTUIN_JS_HTML)):
             locations = scrape_tinteltuin_vestigingen()
         assert len(locations) == 2
-        assert any(l["city"] == "Utrecht" for l in locations)
+        names = [l["name"] for l in locations]
+        assert "Campus Olympia" in names
 
-    def test_adres_field_parsed(self):
+    def test_address_fields_parsed(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(TINTELTUIN_JS_HTML)):
             locations = scrape_tinteltuin_vestigingen()
-        utrecht = next(l for l in locations if "Utrecht" in l["name"])
-        assert utrecht["postcode"] == "3511GH"
-        assert utrecht["city"] == "Utrecht"
+        zaandam = next(l for l in locations if "Olympia" in l["name"])
+        assert zaandam["postcode"] == "1509AX"
+        assert zaandam["city"] == "Zaandam"
+        assert zaandam["street"] == "Willem Prinsplein 4"
 
-    def test_fallback_to_locaties_var(self):
+    def test_coordinates_extracted(self):
         with patch("scrapers.branches.requests.get",
-                   return_value=self._mock_resp(TINTELTUIN_ALT_VAR_HTML)):
+                   return_value=self._mock_resp(TINTELTUIN_JS_HTML)):
             locations = scrape_tinteltuin_vestigingen()
-        assert len(locations) == 1
-        assert locations[0]["city"] == "Den Haag"
+        zaandam = next(l for l in locations if "Olympia" in l["name"])
+        assert zaandam["lat"] == pytest.approx(52.4639428)
+        assert zaandam["lon"] == pytest.approx(4.8252441)
 
     def test_404_returns_empty(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp("", status=404)):
+            locations = scrape_tinteltuin_vestigingen()
+        assert locations == []
+
+    def test_no_mapdata_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(TINTELTUIN_NO_MAPDATA_HTML)):
             locations = scrape_tinteltuin_vestigingen()
         assert locations == []
 
@@ -678,23 +765,29 @@ class TestScrapeTinteltuinVestigingen:
 
 
 # ── scrape_sinne_vestigingen ──────────────────────────────────────────────────
+# Sinne embeds ProjectenData JSON; address in properties.values.adres (HTML),
+# coordinates in properties.values.latitude/longitude.
 
 SINNE_JS_HTML = """<html><body>
 <script>
-window.ProjectenData = [
-  {"headline": "Sinne Leeuwarden Centrum", "adres": "Doelestraat 4, 8911KH Leeuwarden"},
-  {"headline": "Sinne Sneek",              "adres": "Kleinzand 22, 8601CK Sneek"}
+ProjectenData = [
+  {"headline": "IKC Albertine Agnes",
+   "properties": {"values": {
+     "adres": "<p>8915 BB Leeuwarden</p>",
+     "latitude": "53.2067839",
+     "longitude": "5.7744684"
+   }}},
+  {"headline": "IKC Alexia",
+   "properties": {"values": {
+     "adres": "<p>Wilaarderdijk 34<br/>8925 AG Leeuwarden</p>",
+     "latitude": "53.2095346",
+     "longitude": "5.8425261"
+   }}}
 ];
 </script>
 </body></html>"""
 
-SINNE_ALT_HTML = """<html><body>
-<script>
-ProjectenData = [
-  {"name": "Sinne Franeker", "adres": "Dijkstraat 3, 8801LZ Franeker"}
-];
-</script>
-</body></html>"""
+SINNE_NO_DATA_HTML = """<html><body><p>Geen locaties.</p></body></html>"""
 
 
 class TestScrapeSinneVestigingen:
@@ -705,31 +798,38 @@ class TestScrapeSinneVestigingen:
         resp.raise_for_status = MagicMock()
         return resp
 
-    def test_window_projectendata_extracted(self):
+    def test_projectendata_extracted(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(SINNE_JS_HTML)):
             locations = scrape_sinne_vestigingen()
         assert len(locations) == 2
-        assert any(l["city"] == "Leeuwarden" for l in locations)
+        names = [l["name"] for l in locations]
+        assert "IKC Albertine Agnes" in names
 
-    def test_adres_parsed_correctly(self):
+    def test_postcode_extracted_from_html_adres(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp(SINNE_JS_HTML)):
             locations = scrape_sinne_vestigingen()
-        sneek = next(l for l in locations if "Sneek" in l["name"])
-        assert sneek["postcode"] == "8601CK"
-        assert sneek["city"] == "Sneek"
+        loc = next(l for l in locations if "Albertine" in l["name"])
+        assert loc["postcode"] == "8915BB"
 
-    def test_fallback_projectendata_without_window(self):
+    def test_coordinates_extracted(self):
         with patch("scrapers.branches.requests.get",
-                   return_value=self._mock_resp(SINNE_ALT_HTML)):
+                   return_value=self._mock_resp(SINNE_JS_HTML)):
             locations = scrape_sinne_vestigingen()
-        assert len(locations) == 1
-        assert locations[0]["city"] == "Franeker"
+        loc = next(l for l in locations if "Albertine" in l["name"])
+        assert loc["lat"] == pytest.approx(53.2067839)
+        assert loc["lon"] == pytest.approx(5.7744684)
 
     def test_404_returns_empty(self):
         with patch("scrapers.branches.requests.get",
                    return_value=self._mock_resp("", status=404)):
+            locations = scrape_sinne_vestigingen()
+        assert locations == []
+
+    def test_no_projectendata_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(SINNE_NO_DATA_HTML)):
             locations = scrape_sinne_vestigingen()
         assert locations == []
 
@@ -808,4 +908,267 @@ class TestScrapeHumankindVestigingen:
         with patch("scrapers.branches.requests.get",
                    side_effect=Exception("connection refused")):
             locations = scrape_humankind_vestigingen()
+        assert locations == []
+
+
+# ── scrape_spring_vestigingen ──────────────────────────────────────────────────
+
+SPRING_HTML = """<html><body>
+<article class="item location" data-geocode="51.6035033, 6.0581517">
+  <div class="card-body">
+    <a class="card-title" href="/locatie/">Dagopvang Luchtballon | Bergen</a>
+    <div class="fw-300 card-text">
+      <span>Pieter de Hooghstraat 6, 5854 ES, Bergen</span>
+    </div>
+  </div>
+</article>
+<article class="item location" data-geocode="51.3662, 6.1302">
+  <div class="card-body">
+    <a class="card-title" href="/locatie/">Dagopvang Robinson | Blerick</a>
+    <div class="fw-300 card-text">
+      <span>Vossenerlaan 57, 5924 AC, Blerick</span>
+    </div>
+  </div>
+</article>
+</body></html>"""
+
+
+class TestScrapeSpringVestigingen:
+    def _mock_resp(self, html, status=200):
+        resp = MagicMock()
+        resp.text = html
+        resp.status_code = status
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(SPRING_HTML)):
+            locations = scrape_spring_vestigingen()
+        assert len(locations) == 2
+        names = [l["name"] for l in locations]
+        assert any("Luchtballon" in n for n in names)
+
+    def test_address_parsed_from_span(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(SPRING_HTML)):
+            locations = scrape_spring_vestigingen()
+        loc = next(l for l in locations if "Luchtballon" in l["name"])
+        assert loc["street"] == "Pieter de Hooghstraat 6"
+        assert loc["postcode"] == "5854ES"
+        assert loc["city"] == "Bergen"
+
+    def test_coordinates_from_data_geocode(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(SPRING_HTML)):
+            locations = scrape_spring_vestigingen()
+        loc = next(l for l in locations if "Luchtballon" in l["name"])
+        assert loc["lat"] == pytest.approx(51.6035033)
+        assert loc["lon"] == pytest.approx(6.0581517)
+
+    def test_404_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
+            locations = scrape_spring_vestigingen()
+        assert locations == []
+
+    def test_exception_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_spring_vestigingen()
+        assert locations == []
+
+
+# ── scrape_prokino_vestigingen ─────────────────────────────────────────────────
+
+PROKINO_NEXT_DATA = {
+    "props": {"pageProps": {"pageProps": {
+        "locations": [
+            {
+                "pageTitle": "Prokino 't Hummelhof",
+                "geoLocation": {"lat": 52.5797919, "lng": 6.2838299},
+                "sectionBox": [{"products": [{"contactDetails": {
+                    "address": "Kon. Julianalaan 14",
+                    "zipCode": "7711 KK",
+                    "city": "Nieuwleusen",
+                }}]}],
+            }
+        ]
+    }}}
+}
+
+import json as _json_mod
+PROKINO_HTML = (
+    '<html><body>'
+    '<script id="__NEXT_DATA__" type="application/json">'
+    + _json_mod.dumps(PROKINO_NEXT_DATA) +
+    '</script></body></html>'
+)
+
+
+class TestScrapePrrokinoVestigingen:
+    def _mock_resp(self, html, status=200):
+        resp = MagicMock()
+        resp.text = html
+        resp.status_code = status
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_next_data_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(PROKINO_HTML)):
+            locations = scrape_prokino_vestigingen()
+        assert len(locations) == 1
+        assert locations[0]["name"] == "Prokino 't Hummelhof"
+
+    def test_address_and_coordinates(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(PROKINO_HTML)):
+            locations = scrape_prokino_vestigingen()
+        loc = locations[0]
+        assert loc["postcode"] == "7711KK"
+        assert loc["city"] == "Nieuwleusen"
+        assert loc["lat"] == pytest.approx(52.5797919)
+        assert loc["lon"] == pytest.approx(6.2838299)
+
+    def test_404_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
+            locations = scrape_prokino_vestigingen()
+        assert locations == []
+
+    def test_exception_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_prokino_vestigingen()
+        assert locations == []
+
+
+# ── scrape_kober_vestigingen ───────────────────────────────────────────────────
+
+KOBER_HTML = """<html><body>
+<div class="right-col">
+  <h5 class="post-title"><a>'t Klokhuis</a></h5>
+  <div class="address-wrapper">
+    <span class="address">Weversdries 3, 4851 BD, Ulvenhout</span>
+  </div>
+</div>
+<div class="right-col">
+  <h5 class="post-title"><a>'t Olifantje</a></h5>
+  <div class="address-wrapper">
+    <span class="address">Kapittelhof 2, 4841 GX, Prinsenbeek</span>
+  </div>
+</div>
+</body></html>"""
+
+
+class TestScrapeKoberVestigingen:
+    def _mock_resp(self, html, status=200):
+        resp = MagicMock()
+        resp.text = html
+        resp.status_code = status
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KOBER_HTML)):
+            locations = scrape_kober_vestigingen()
+        assert len(locations) == 2
+        names = [l["name"] for l in locations]
+        assert "'t Klokhuis" in names
+
+    def test_address_parsed(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KOBER_HTML)):
+            locations = scrape_kober_vestigingen()
+        loc = next(l for l in locations if "Klokhuis" in l["name"])
+        assert loc["street"] == "Weversdries 3"
+        assert loc["postcode"] == "4851BD"
+        assert loc["city"] == "Ulvenhout"
+
+    def test_404_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
+            locations = scrape_kober_vestigingen()
+        assert locations == []
+
+    def test_exception_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_kober_vestigingen()
+        assert locations == []
+
+
+# ── scrape_kion_vestigingen ────────────────────────────────────────────────────
+
+KION_JS_HTML = """<html><body>
+<script>
+var locations = [
+  {
+    'id': 59,
+    'type': 'bso',
+    'name': 'Afferden',
+    'address': 'De Gaard 19',
+    'city': 'Afferden',
+    'zipcode': '6654 BL',
+    'phone': '06 42 38 61 09',
+    'lat': 51.880428,
+    'lng': 5.6338169,
+    'resource_id': 193,
+    'url': 'https://kion.nl/locaties/afferden.html'
+  },
+  {
+    'id': 60,
+    'type': 'kdv',
+    'name': 'Alphen',
+    'address': 'Schoolstraat 9',
+    'city': 'Alphen',
+    'zipcode': '6626 AC',
+    'lat': 51.8204476,
+    'lng': 5.4720365
+  }
+];
+</script>
+</body></html>"""
+
+
+class TestScrapeKionVestigingen:
+    def _mock_resp(self, html, status=200):
+        resp = MagicMock()
+        resp.text = html
+        resp.status_code = status
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    def test_locations_extracted(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KION_JS_HTML)):
+            locations = scrape_kion_vestigingen()
+        assert len(locations) == 2
+        names = [l["name"] for l in locations]
+        assert "Afferden" in names
+        assert "Alphen" in names
+
+    def test_address_and_coordinates(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp(KION_JS_HTML)):
+            locations = scrape_kion_vestigingen()
+        loc = next(l for l in locations if l["name"] == "Afferden")
+        assert loc["street"] == "De Gaard 19"
+        assert loc["postcode"] == "6654BL"
+        assert loc["city"] == "Afferden"
+        assert loc["lat"] == pytest.approx(51.880428)
+        assert loc["lon"] == pytest.approx(5.6338169)
+
+    def test_404_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   return_value=self._mock_resp("", status=404)):
+            locations = scrape_kion_vestigingen()
+        assert locations == []
+
+    def test_exception_returns_empty(self):
+        with patch("scrapers.branches.requests.get",
+                   side_effect=Exception("DNS")):
+            locations = scrape_kion_vestigingen()
         assert locations == []

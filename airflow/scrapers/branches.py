@@ -73,27 +73,29 @@ STREET_RE = re.compile(
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def upsert_vestiging(cur, company_slug: str, name: str, street: str,
-                     postcode: str, city: str) -> None:
-    """Upsert a branch record. Geocodes via PDOK if coordinates are missing."""
-    # Build the best available geocoding query string
-    query = ""
-    if street and postcode and city:
-        query = f"{street}, {postcode} {city}"
-    elif postcode and city:
-        query = f"{postcode} {city}"
-    elif city:
-        query = city
+                     postcode: str, city: str,
+                     lon: float | None = None, lat: float | None = None) -> None:
+    """Upsert a branch record. Uses provided lon/lat or geocodes via PDOK."""
+    if lon is None or lat is None:
+        # Build the best available geocoding query string
+        query = ""
+        if street and postcode and city:
+            query = f"{street}, {postcode} {city}"
+        elif postcode and city:
+            query = f"{postcode} {city}"
+        elif city:
+            query = city
 
-    lon = lat = None
-    if query:
-        geo = _geocode_via_pdok(query)
-        if geo:
-            lon = geo["lon"]
-            lat = geo["lat"]
-            if not city:
-                city = geo.get("city", city)
-            if not postcode:
-                postcode = geo.get("postcode", postcode)
+        lon = lat = None
+        if query:
+            geo = _geocode_via_pdok(query)
+            if geo:
+                lon = geo["lon"]
+                lat = geo["lat"]
+                if not city:
+                    city = geo.get("city", city)
+                if not postcode:
+                    postcode = geo.get("postcode", postcode)
 
     if lon is not None:
         cur.execute("""
@@ -234,6 +236,22 @@ def _parse_address_block(text: str) -> tuple[str, str, str]:
     return street, postcode, city
 
 
+def _parse_comma_address(text: str) -> tuple[str, str, str]:
+    """
+    Parse an address in comma-separated format:
+    'Pieter de Hooghstraat 6, 5854 ES, Bergen' → (street, postcode, city)
+    Also handles '5854 ES Bergen' without comma before city.
+    """
+    pc_m = POSTCODE_RE.search(text)
+    if not pc_m:
+        return "", "", ""
+    postcode = pc_m.group(1).replace(" ", "")
+    street = text[:pc_m.start()].strip().rstrip(",").strip()
+    after = text[pc_m.end():].strip().lstrip(",").strip()
+    # Take up to first comma or end of string
+    city = re.split(r"[,\n]", after)[0].strip()
+    return street, postcode, city
+
 
 # ── JavaScript data extraction helpers ───────────────────────────────────────
 
@@ -317,66 +335,6 @@ def scrape_partou_vestigingen() -> list[dict]:
     return locations
 
 
-def scrape_kinderdam_vestigingen() -> list[dict]:
-    """
-    Scrape Kinderdam branches from kinderdam.nl.
-    """
-    locations = []
-    BASE = "https://www.kinderdam.nl"
-
-    for path in ["/locaties", "/onze-locaties", "/vestigingen", "/over-kinderdam/locaties"]:
-        url = BASE + path
-        try:
-            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
-            if resp.status_code != 200:
-                continue
-
-            soup = BeautifulSoup(resp.text, "lxml")
-
-            # Schema.org JSON-LD
-            for ld in soup.find_all("script", type="application/ld+json"):
-                import json
-                try:
-                    data = json.loads(ld.string or "")
-                    items = data if isinstance(data, list) else [data]
-                    for item in items:
-                        if item.get("@type") in ("ChildCare", "LocalBusiness"):
-                            addr = item.get("address", {})
-                            name = item.get("name", "")
-                            street = addr.get("streetAddress", "")
-                            postcode = addr.get("postalCode", "").replace(" ", "")
-                            city = addr.get("addressLocality", "")
-                            if name and city:
-                                locations.append({
-                                    "name": name, "street": street,
-                                    "postcode": postcode, "city": city,
-                                })
-                except Exception:
-                    pass
-
-            # HTML fallback: look for cards with name + address
-            if not locations:
-                for card in soup.select("article, [class*='location'], [class*='locatie'], .card"):
-                    name_el = card.select_one("h2, h3, h4")
-                    name = name_el.get_text(strip=True) if name_el else ""
-                    text = card.get_text(separator="\n")
-                    street, postcode, city = _parse_address_block(text)
-                    if name and city:
-                        locations.append({
-                            "name": name, "street": street,
-                            "postcode": postcode, "city": city,
-                        })
-
-            if locations:
-                logger.info(f"[kinderdam-branches] {len(locations)} locations at {url}")
-                return locations
-
-        except Exception as exc:
-            logger.warning(f"[kinderdam-branches] {url} failed: {exc}")
-
-    return locations
-
-
 def _scrape_generic_vestigingen(company_slug: str, base_url: str,
                                  location_paths: list[str]) -> list[dict]:
     """
@@ -451,7 +409,8 @@ def _scrape_generic_vestigingen(company_slug: str, base_url: str,
 def scrape_compananny_vestigingen() -> list[dict]:
     """
     Scrape CompaNanny branches from compananny.com/locaties.
-    The page embeds a JavaScript 'locations' array with address + zipcode per location.
+    The page embeds a JS object literal array (not JSON) with lon/lat/address per location.
+    Uses regex extraction since keys are unquoted and strings use single quotes.
     """
     locations = []
     for url in ["https://www.compananny.com/locaties", "https://www.compananny.nl/locaties"]:
@@ -460,27 +419,31 @@ def scrape_compananny_vestigingen() -> list[dict]:
             if resp.status_code != 200:
                 continue
 
-            items = _extract_js_json(resp.text, "locations")
-            for item in items:
-                name    = str(item.get("name") or "").strip()
-                address = str(item.get("address") or "").strip()
-                zipcode = str(item.get("zipcode") or "").strip()
-                # zipcode may be "1091 RV, Amsterdam" or just "1091RV"
+            # JS object literal: name: 'X', lon: 'X', lat: 'X', address: 'X', zipcode: 'X, City'
+            entries = re.findall(
+                r"name:\s*'([^']+)'[^}]*?lon:\s*'([^']+)'[^}]*?lat:\s*'([^']+)'[^}]*?"
+                r"address:\s*'([^']*)'[^}]*?zipcode:\s*'([^']*)'",
+                resp.text, re.DOTALL,
+            )
+            for name, lon, lat, address, zipcode in entries:
                 pc_m = POSTCODE_RE.search(zipcode)
                 postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
-                # City after the postcode in the zipcode string, or separate field
                 city_m = re.search(r"\d{4}\s*[A-Z]{2}[,\s]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,40})", zipcode)
-                city = city_m.group(1).strip() if city_m else (item.get("city") or "").strip()
-                if not city:
-                    city = (item.get("url") or "").split("/locaties/")[-1].split("/")[0].replace("-", " ").title()
+                city = city_m.group(1).strip() if city_m else ""
                 if name and (city or postcode):
-                    locations.append({
-                        "name": name, "street": address,
+                    loc = {
+                        "name": name.strip(), "street": address.strip(),
                         "postcode": postcode, "city": city,
-                    })
+                    }
+                    try:
+                        loc["lon"] = float(lon)
+                        loc["lat"] = float(lat)
+                    except ValueError:
+                        pass
+                    locations.append(loc)
 
             if locations:
-                logger.info(f"[compananny-branches] {len(locations)} locations from JS array at {url}")
+                logger.info(f"[compananny-branches] {len(locations)} locations from JS at {url}")
                 return locations
 
         except Exception as exc:
@@ -492,8 +455,9 @@ def scrape_compananny_vestigingen() -> list[dict]:
 def scrape_tinteltuin_vestigingen() -> list[dict]:
     """
     Scrape TintelTuin branches from tinteltuin.nl/kinderopvang.
-    The page embeds a JavaScript array with location name + adres (full address).
+    Page embeds a 'mapdata' JSON array with addresses.map.lat/lng per location.
     """
+    import json as _json
     locations = []
     for url in ["https://tinteltuin.nl/kinderopvang", "https://www.tinteltuin.nl/kinderopvang"]:
         try:
@@ -501,32 +465,34 @@ def scrape_tinteltuin_vestigingen() -> list[dict]:
             if resp.status_code != 200:
                 continue
 
-            # TintelTuin embeds location data as a JS array; adres contains "Street, POSTCODE City"
-            items = _extract_js_json(resp.text, "locations") or _extract_js_json(resp.text, "locaties")
-            if not items:
-                # Try to find any JSON-like array with 'adres' key
-                m = re.search(r'\[\s*\{[^]]*"adres"[^]]*\}[^]]*\]', resp.text, re.DOTALL)
-                if m:
-                    import json as _json
-                    try:
-                        items = _json.loads(m.group(0))
-                    except Exception:
-                        pass
+            m = re.search(r'mapdata\s*=\s*(\[[\s\S]*?\])\s*;', resp.text)
+            if not m:
+                continue
+            try:
+                items = _json.loads(m.group(1))
+            except Exception:
+                continue
 
             for item in items:
-                name  = str(item.get("name") or item.get("naam") or "").strip()
-                adres = str(item.get("adres") or item.get("address") or "").strip()
-                if not adres:
-                    continue
-                street, postcode, city = _parse_address_block(adres)
-                if not city:
-                    pc_m = POSTCODE_RE.search(adres)
-                    postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
+                name    = str(item.get("post_title") or "").strip()
+                addrs   = item.get("addresses") or {}
+                street  = str(addrs.get("street_name") or "").strip()
+                postcode = str(addrs.get("postcode") or "").replace(" ", "").strip()
+                city    = str(addrs.get("city") or "").strip()
+                map_data = addrs.get("map") or {}
+                lat = map_data.get("lat")
+                lon = map_data.get("lng")
+                if not postcode and map_data.get("post_code"):
+                    postcode = map_data["post_code"].replace(" ", "")
                 if name and (city or postcode):
-                    locations.append({
-                        "name": name, "street": street,
-                        "postcode": postcode, "city": city,
-                    })
+                    loc = {"name": name, "street": street, "postcode": postcode, "city": city}
+                    if lat and lon:
+                        try:
+                            loc["lat"] = float(lat)
+                            loc["lon"] = float(lon)
+                        except ValueError:
+                            pass
+                    locations.append(loc)
 
             if locations:
                 logger.info(f"[tinteltuin-branches] {len(locations)} locations at {url}")
@@ -541,8 +507,10 @@ def scrape_tinteltuin_vestigingen() -> list[dict]:
 def scrape_sinne_vestigingen() -> list[dict]:
     """
     Scrape Sinne branches from sinnekinderopvang.nl/contact/vind-een-locatie.
-    Page embeds window.ProjectenData with headline + adres (full address).
+    Page embeds ProjectenData JSON array; address in properties.values.adres (HTML),
+    coordinates in properties.values.latitude/longitude.
     """
+    import json as _json
     locations = []
     for url in [
         "https://www.sinnekinderopvang.nl/contact/vind-een-locatie",
@@ -553,32 +521,38 @@ def scrape_sinne_vestigingen() -> list[dict]:
             if resp.status_code != 200:
                 continue
 
-            items = _extract_js_json(resp.text, "window.ProjectenData") or \
-                    _extract_js_json(resp.text, "ProjectenData")
-            if not items:
-                # Also look for JSON-like array with headline+adres pattern
-                m = re.search(r'ProjectenData\s*=\s*(\[[\s\S]*?\])\s*[;\n]', resp.text)
-                if m:
-                    import json as _json
-                    try:
-                        items = _json.loads(m.group(1))
-                    except Exception:
-                        pass
+            m = re.search(r'ProjectenData\s*=\s*(\[[\s\S]*?\])\s*[;\n]', resp.text)
+            if not m:
+                continue
+            try:
+                items = _json.loads(m.group(1))
+            except Exception:
+                continue
 
             for item in items:
-                name = str(item.get("headline") or item.get("name") or "").strip()
-                adres = str(item.get("adres") or item.get("address") or "").strip()
-                if not adres:
-                    continue
-                street, postcode, city = _parse_address_block(adres)
+                name = str(item.get("headline") or "").strip()
+                props_vals = (item.get("properties") or {}).get("values") or {}
+                adres_html = str(props_vals.get("adres") or "").strip()
+                lat_str    = str(props_vals.get("latitude") or "")
+                lon_str    = str(props_vals.get("longitude") or "")
+
+                # Strip HTML tags from adres
+                adres_text = re.sub(r"<[^>]+>", " ", adres_html).strip()
+                adres_text = re.sub(r"\s+", " ", adres_text).strip()
+
+                street, postcode, city = _parse_address_block(adres_text)
                 if not postcode:
-                    pc_m = POSTCODE_RE.search(adres)
+                    pc_m = POSTCODE_RE.search(adres_text)
                     postcode = pc_m.group(1).replace(" ", "") if pc_m else ""
+
                 if name and (city or postcode):
-                    locations.append({
-                        "name": name, "street": street,
-                        "postcode": postcode, "city": city,
-                    })
+                    loc = {"name": name, "street": street, "postcode": postcode, "city": city}
+                    try:
+                        loc["lat"] = float(lat_str)
+                        loc["lon"] = float(lon_str)
+                    except (ValueError, TypeError):
+                        pass
+                    locations.append(loc)
 
             if locations:
                 logger.info(f"[sinne-branches] {len(locations)} locations at {url}")
@@ -653,6 +627,269 @@ def scrape_humankind_vestigingen() -> list[dict]:
     return locations
 
 
+# ── Additional custom scrapers ────────────────────────────────────────────────
+
+def scrape_spring_vestigingen() -> list[dict]:
+    """
+    Scrape Spring branches from spring-kinderopvang.nl/locaties.
+    Each article has data-geocode='lat, lng' and .card-title for name,
+    and a <span> in .card-text with 'street, postcode, city'.
+    """
+    locations = []
+    for url in ["https://www.spring-kinderopvang.nl/locaties",
+                "https://spring-kinderopvang.nl/locaties"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "lxml")
+            for card in soup.select("article[data-geocode]"):
+                name_el = card.select_one(".card-title, a.card-title, h5, h4, h3, h2")
+                name = name_el.get_text(strip=True) if name_el else ""
+                if not name:
+                    continue
+                addr_el = card.select_one(".card-text span, .fw-300 span")
+                addr_text = addr_el.get_text(strip=True) if addr_el else ""
+                street, postcode, city = _parse_comma_address(addr_text)
+                geo = card.get("data-geocode", "")
+                lat = lon = None
+                if geo:
+                    parts = geo.split(",")
+                    if len(parts) == 2:
+                        try:
+                            lat = float(parts[0].strip())
+                            lon = float(parts[1].strip())
+                        except ValueError:
+                            pass
+                if name and (city or postcode):
+                    loc = {"name": name, "street": street, "postcode": postcode, "city": city}
+                    if lat and lon:
+                        loc["lat"] = lat
+                        loc["lon"] = lon
+                    locations.append(loc)
+            if locations:
+                logger.info(f"[spring-branches] {len(locations)} locations at {url}")
+                return locations
+        except Exception as exc:
+            logger.warning(f"[spring-branches] {url} failed: {exc}")
+    return locations
+
+
+def scrape_prokino_vestigingen() -> list[dict]:
+    """
+    Scrape Prokino from prokino.nl/locaties using Next.js __NEXT_DATA__.
+    Each location has geoLocation.lat/lng and contactDetails.address/zipCode/city.
+    """
+    import json as _json
+    locations = []
+    url = "https://www.prokino.nl/locaties"
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        if resp.status_code != 200:
+            return []
+        m = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            resp.text, re.DOTALL,
+        )
+        if not m:
+            return []
+        data = _json.loads(m.group(1))
+        locs_raw = (data.get("props", {}).get("pageProps", {})
+                    .get("pageProps", {}).get("locations", []))
+        seen = set()
+        for item in locs_raw:
+            name = str(item.get("pageTitle") or "").strip()
+            geo = item.get("geoLocation") or {}
+            lat = geo.get("lat")
+            lng = geo.get("lng")
+            # Get first product's contactDetails
+            products = []
+            for section in (item.get("sectionBox") or []):
+                products.extend(section.get("products") or [])
+            contact = {}
+            if products:
+                contact = products[0].get("contactDetails") or {}
+            street   = str(contact.get("address") or "").strip()
+            zipcode  = str(contact.get("zipCode") or "").replace(" ", "").strip()
+            city     = str(contact.get("city") or "").strip()
+            if not city:
+                city = str((item.get("parent") or {}).get("pageTitle") or "").strip()
+            key = f"{zipcode}|{street}"
+            if name and (city or zipcode) and key not in seen:
+                seen.add(key)
+                loc = {"name": name, "street": street, "postcode": zipcode, "city": city}
+                if lat and lng:
+                    try:
+                        loc["lat"] = float(lat)
+                        loc["lon"] = float(lng)
+                    except (ValueError, TypeError):
+                        pass
+                locations.append(loc)
+        logger.info(f"[prokino-branches] {len(locations)} locations from Next.js")
+    except Exception as exc:
+        logger.warning(f"[prokino-branches] {url} failed: {exc}")
+    return locations
+
+
+def scrape_kober_vestigingen() -> list[dict]:
+    """
+    Scrape Kober from kober.nl/locaties.
+    Each location card has .right-col with h5.post-title (name) and
+    .address-wrapper span.address with 'street, postcode, city'.
+    """
+    locations = []
+    for url in ["https://kober.nl/locaties", "https://www.kober.nl/locaties"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "lxml")
+            seen = set()
+            for addr_span in soup.select("span.address"):
+                addr_text = addr_span.get_text(strip=True)
+                if not re.search(r"\d{4}\s?[A-Z]{2}", addr_text):
+                    continue
+                # Find name in parent .right-col
+                right_col = addr_span.find_parent(class_=lambda c: c and "right-col" in (c if isinstance(c, str) else " ".join(c)))
+                if not right_col:
+                    right_col = addr_span.find_parent(["article", "div", "li"])
+                name_el = right_col.select_one("h5, h4, h3, h2, .post-title") if right_col else None
+                name = name_el.get_text(strip=True) if name_el else ""
+                street, postcode, city = _parse_comma_address(addr_text)
+                key = f"{postcode}|{name}"
+                if name and (city or postcode) and key not in seen:
+                    seen.add(key)
+                    locations.append({"name": name, "street": street, "postcode": postcode, "city": city})
+            if locations:
+                logger.info(f"[kober-branches] {len(locations)} locations at {url}")
+                return locations
+        except Exception as exc:
+            logger.warning(f"[kober-branches] {url} failed: {exc}")
+    return locations
+
+
+def scrape_kion_vestigingen() -> list[dict]:
+    """
+    Scrape KION from kion.nl/locaties.
+    Page embeds a JS object literal array (single quotes) with
+    id/type/name/address/city/zipcode/lat/lng per location.
+    """
+    locations = []
+    for url in ["https://kion.nl/locaties", "https://www.kion.nl/locaties"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+            # JS single-quoted object literals in an array
+            entries = re.findall(
+                r"\{\s*'id':\s*(\d+)[^}]*?"
+                r"'name':\s*'([^']*)'[^}]*?"
+                r"'address':\s*'([^']*)'[^}]*?"
+                r"'city':\s*'([^']*)'[^}]*?"
+                r"'zipcode':\s*'([^']*)'[^}]*?"
+                r"'lat':\s*([\d\.\-]+)[^}]*?"
+                r"'lng':\s*([\d\.\-]+)",
+                resp.text, re.DOTALL,
+            )
+            seen = set()
+            for _id, name, address, city, zipcode, lat, lng in entries:
+                postcode = zipcode.replace(" ", "").strip()
+                key = f"{postcode}|{name}"
+                if name and (city or postcode) and key not in seen:
+                    seen.add(key)
+                    loc = {"name": name, "street": address.strip(), "postcode": postcode, "city": city.strip()}
+                    try:
+                        loc["lat"] = float(lat)
+                        loc["lon"] = float(lng)
+                    except ValueError:
+                        pass
+                    locations.append(loc)
+            if locations:
+                logger.info(f"[kion-branches] {len(locations)} locations at {url}")
+                return locations
+        except Exception as exc:
+            logger.warning(f"[kion-branches] {url} failed: {exc}")
+    return locations
+
+
+def scrape_kinderdam_vestigingen() -> list[dict]:
+    """
+    Scrape KindeRdam from kinderdam.nl/locaties (Next.js App Router / flight protocol).
+    Decodes self.__next_f.push() calls, finds 'locations' JSON array, then extracts
+    each item's name and kdv/bso/po sub-object with address/postalCode/city/lat/lng.
+    """
+    import json as _json
+    locations = []
+    for url in ["https://kinderdam.nl/locaties", "https://www.kinderdam.nl/locaties"]:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            if resp.status_code != 200:
+                continue
+            pushes = re.findall(
+                r'self\.__next_f\.push\(\[1,"(.*?)"\]\)',
+                resp.text, re.DOTALL,
+            )
+            if not pushes:
+                continue
+            full = "".join(pushes).encode("utf-8").decode("unicode_escape", errors="replace")
+
+            # Find 'locations' array and parse it
+            m = re.search(r'"locations"\s*:\s*\[', full)
+            if not m:
+                continue
+            start = m.end() - 1  # point to the '['
+            depth = 0
+            end = start
+            for i, c in enumerate(full[start:], start):
+                if c == "[":
+                    depth += 1
+                elif c == "]":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            try:
+                items = _json.loads(full[start:end])
+            except Exception:
+                continue
+
+            seen: set[str] = set()
+            for item in items:
+                name = str(item.get("name") or "").strip()
+                # Pick first care-type sub-object that has address data
+                contact: dict = {}
+                for care_key in ("kdv", "bso", "po", "ssg"):
+                    sub = item.get(care_key) or {}
+                    if sub.get("address") or sub.get("postalCode"):
+                        contact = sub
+                        break
+                if not contact:
+                    continue
+                address  = str(contact.get("address") or "").strip()
+                postcode = str(contact.get("postalCode") or "").replace(" ", "").strip()
+                city     = str(contact.get("city") or "").strip()
+                lat      = contact.get("latitude")
+                lng      = contact.get("longitude")
+                key = f"{postcode}|{address}"
+                if name and (city or postcode) and key not in seen:
+                    seen.add(key)
+                    loc = {"name": name, "street": address, "postcode": postcode, "city": city}
+                    if lat and lng:
+                        try:
+                            loc["lat"] = float(lat)
+                            loc["lon"] = float(lng)
+                        except (ValueError, TypeError):
+                            pass
+                    locations.append(loc)
+
+            if locations:
+                logger.info(f"[kinderdam-branches] {len(locations)} locations at {url}")
+                return locations
+        except Exception as exc:
+            logger.warning(f"[kinderdam-branches] {url} failed: {exc}")
+    return locations
+
+
 # ── Company configs ───────────────────────────────────────────────────────────
 
 def _generic(slug: str, *sites: str) -> dict:
@@ -670,21 +907,17 @@ def _generic(slug: str, *sites: str) -> dict:
 
 COMPANY_CONFIGS = {
     # ── custom scrapers ───────────────────────────────────────────────────────
-    "partou": {
-        "scraper": scrape_partou_vestigingen,
-    },
-    "kinderdam": {
-        "scraper": scrape_kinderdam_vestigingen,
-    },
+    "partou":     {"scraper": scrape_partou_vestigingen},
+    "kinderdam":  {"scraper": scrape_kinderdam_vestigingen},
+    "spring":     {"scraper": scrape_spring_vestigingen},
+    "prokino":    {"scraper": scrape_prokino_vestigingen},
+    "kober":      {"scraper": scrape_kober_vestigingen},
+    "kion":       {"scraper": scrape_kion_vestigingen},
+    "compananny": {"scraper": scrape_compananny_vestigingen},
+    "sinne":      {"scraper": scrape_sinne_vestigingen},
+    "tinteltuin": {"scraper": scrape_tinteltuin_vestigingen},
+    "humankind":  {"scraper": scrape_humankind_vestigingen},
     # ── generic scrapers ──────────────────────────────────────────────────────
-    "spring": _generic(
-        "spring",
-        "https://www.spring-kinderopvang.nl",
-    ),
-    "prokino": _generic(
-        "prokino",
-        "https://www.prokino.nl",
-    ),
     "norlandia": _generic(
         "norlandia",
         "https://www.norlandia.nl",
@@ -693,10 +926,6 @@ COMPANY_CONFIGS = {
         "gro-up",
         "https://www.gro-up.nl",
     ),
-    "compananny": {"scraper": scrape_compananny_vestigingen},
-    "sinne":      {"scraper": scrape_sinne_vestigingen},
-    "tinteltuin": {"scraper": scrape_tinteltuin_vestigingen},
-    "humankind":  {"scraper": scrape_humankind_vestigingen},
     "kibeo": _generic(
         "kibeo",
         "https://www.kibeo.nl",
@@ -708,12 +937,11 @@ COMPANY_CONFIGS = {
     ),
     "bijdehandjes": _generic(
         "bijdehandjes",
-        "https://www.bijdehandjes.nl",
+        "https://www.bijdehandjes.info",   # .info not .nl
     ),
     "bink": _generic(
         "bink",
-        "https://www.binkopvang.nl",
-        "https://www.bink.nl",
+        "https://www.debinkopmeer.nl",     # binkopvang.nl redirects here
     ),
     "dak": _generic(
         "dak",
@@ -721,8 +949,8 @@ COMPANY_CONFIGS = {
     ),
     "dichtbij": _generic(
         "dichtbij",
-        "https://www.kdv-dichtbij.nl",
         "https://www.dichtbijkinderopvang.nl",
+        "https://www.kdv-dichtbij.nl",
     ),
     "kinderwoud": _generic(
         "kinderwoud",
@@ -730,12 +958,8 @@ COMPANY_CONFIGS = {
     ),
     "kids-first": _generic(
         "kids-first",
+        "https://www.kidsfirst.nl",            # .nl works; kidsfirstkinderopvang.nl has DNS issues
         "https://www.kidsfirstkinderopvang.nl",
-        "https://www.kidsfirst.nl",
-    ),
-    "kober": _generic(
-        "kober",
-        "https://www.kober.nl",
     ),
     "mik": _generic(
         "mik",
@@ -773,10 +997,6 @@ COMPANY_CONFIGS = {
     "samenwerkende-ko": _generic(
         "samenwerkende-ko",
         "https://www.samenwerkendekinderopvang.nl",
-    ),
-    "kion": _generic(
-        "kion",
-        "https://www.kion.nl",
     ),
 }
 
@@ -825,11 +1045,14 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                             name=loc["name"],
                             street=loc.get("street", ""),
                             postcode=loc.get("postcode", ""),
-                            city=loc["city"],
+                            city=loc.get("city", ""),
+                            lon=loc.get("lon"),
+                            lat=loc.get("lat"),
                         )
                         cur.execute("RELEASE SAVEPOINT sp_upsert")
                         inserted += 1
-                        time.sleep(0.2)  # PDOK rate limiting
+                        if loc.get("lon") is None:
+                            time.sleep(0.2)  # PDOK rate limiting
                     except Exception as exc:
                         cur.execute("ROLLBACK TO SAVEPOINT sp_upsert")
                         logger.warning(f"[branches] Upsert failed for {loc.get('name')}: {exc}")
