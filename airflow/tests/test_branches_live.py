@@ -180,6 +180,23 @@ class TestHumankindLive:
         _assert_full_address("humankind", locs, min_with_street_pct=70)
 
 
+# ── Markeri za poznate neodržane kompanije ────────────────────────────────────
+# Definisani ovde da bi bili dostupni svim klasama ispod.
+
+_XFAIL_JS = pytest.mark.xfail(
+    reason="Lokacije se učitavaju JavaScript-om — generički HTML scraper ne vidi podatke",
+    strict=False,
+)
+_XFAIL_DNS = pytest.mark.xfail(
+    reason="DNS fail lokalno (domen ne postoji ili je nedostupan bez VPN)",
+    strict=False,
+)
+_XFAIL_NO_PAGE = pytest.mark.xfail(
+    reason="Sajt nema standardnu /vestigingen ili /locaties stranicu",
+    strict=False,
+)
+
+
 # ── Generički scrapers — proveravamo samo da vraćaju nešto ako site postoji ───
 
 class TestKidsFirstLive:
@@ -228,19 +245,6 @@ class TestBijdehandjesLive:
 #   - DNS nije dostupan lokalno (bink/debinkopmeer.nl, dichtbij/kdv-dichtbij.nl, mik-nijmegen.nl)
 #   - Sajt nema /vestigingen stranicu (op-stoom, ska, 2samen, ko-walcheren, samenwerkende-ko)
 # Testovi ostaju kao dokumentacija — kad se fixuju, xfail postaje xpass.
-
-_XFAIL_JS = pytest.mark.xfail(
-    reason="Lokacije se učitavaju JavaScript-om — generički HTML scraper ne vidi podatke",
-    strict=False,
-)
-_XFAIL_DNS = pytest.mark.xfail(
-    reason="DNS fail lokalno (domen ne postoji ili je nedostupan bez VPN)",
-    strict=False,
-)
-_XFAIL_NO_PAGE = pytest.mark.xfail(
-    reason="Sajt nema standardnu /vestigingen ili /locaties stranicu",
-    strict=False,
-)
 
 
 class TestBinkLive:
