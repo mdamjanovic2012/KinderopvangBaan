@@ -308,18 +308,19 @@ def scrape_partou_vestigingen() -> list[dict]:
 
     items = data.get("data", {}).get("vacancyCollection", {}).get("items", [])
 
-    # Deduplicate by oeNumber (facility ID); fall back to address string
+    # Deduplicate by physical address (address+postcode+city).
+    # Multiple vacancies at the same location have different oeNumbers (KDV, BSO, PSZ)
+    # but represent the same branch → use address as primary key.
     seen: dict[str, dict] = {}
     for item in items:
         address  = (item.get("address") or "").strip()
         postcode = (item.get("postalCode") or "").replace(" ", "").strip()
         city     = (item.get("city") or "").strip()
-        oe       = str(item.get("oeNumber") or "")
 
         if not city or not (address or postcode):
             continue
 
-        key = oe if oe else f"{address}|{postcode}|{city}"
+        key = f"{address}|{postcode}|{city}"
         if key not in seen:
             # Name = address string (used for matching in match_vestiging)
             name = f"{address}, {city}" if address else f"{postcode} {city}"
@@ -482,7 +483,8 @@ def scrape_tinteltuin_vestigingen() -> list[dict]:
                 map_data = addrs.get("map") or {}
                 lat = map_data.get("lat")
                 lon = map_data.get("lng")
-                if not postcode and map_data.get("post_code"):
+                # Fallback: addresses.postcode is sometimes incomplete (e.g. '1509' without letters)
+                if map_data.get("post_code") and not re.match(r"^\d{4}[A-Z]{2}$", postcode):
                     postcode = map_data["post_code"].replace(" ", "")
                 if name and (city or postcode):
                     loc = {"name": name, "street": street, "postcode": postcode, "city": city}
@@ -702,18 +704,25 @@ def scrape_prokino_vestigingen() -> list[dict]:
             geo = item.get("geoLocation") or {}
             lat = geo.get("lat")
             lng = geo.get("lng")
-            # Get first product's contactDetails
+            # Get contactDetails — prefer first product with a zipCode
             products = []
             for section in (item.get("sectionBox") or []):
                 products.extend(section.get("products") or [])
             contact = {}
-            if products:
+            for prod in products:
+                cd = prod.get("contactDetails") or {}
+                if cd.get("zipCode", "").strip():
+                    contact = cd
+                    break
+            if not contact and products:
                 contact = products[0].get("contactDetails") or {}
             street   = str(contact.get("address") or "").strip()
             zipcode  = str(contact.get("zipCode") or "").replace(" ", "").strip()
             city     = str(contact.get("city") or "").strip()
             if not city:
                 city = str((item.get("parent") or {}).get("pageTitle") or "").strip()
+            if not zipcode:
+                continue  # geen postcode → niet bruikbaar voor geocodering
             key = f"{zipcode}|{street}"
             if name and (city or zipcode) and key not in seen:
                 seen.add(key)

@@ -42,6 +42,7 @@ class TestKidsFirstFetchJobs:
 
 @pytest.mark.integration
 class TestKidsFirstLive:
+    @pytest.mark.xfail(reason="kidsfirst.nl vraća 403 Forbidden (bot protection)", strict=False)
     def test_listing_bereikbaar(self):
         import requests
         assert requests.get(KidsFirstScraper.listing_url, timeout=15).status_code == 200
