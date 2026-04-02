@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
-from airflow.utils.trigger_rule import TriggerRule
 
 # ── Scrapers: module → klasse (alphabetisch) ─────────────────────────────────
 
@@ -58,14 +57,22 @@ BATCH_SIZE = 5
 
 
 def _make_scraper_callable(module: str, klass: str):
-    """Geeft een callable terug die de scraper importeert en uitvoert."""
+    """Geeft een callable terug die de scraper importeert en uitvoert.
+
+    Fouten worden gelogd maar niet opnieuw gegooid zodat één falende scraper
+    de rest van de batch niet blokkeert. scrape_branches mag wél falen en
+    stopt dan de hele pipeline via de standaard ALL_SUCCESS trigger-regel.
+    """
     def run():
         import importlib
-        mod = importlib.import_module(module)
-        scraper_cls = getattr(mod, klass)
-        stats = scraper_cls().run()
-        print(f"[{klass}] resultaat: {stats}")
-        return stats
+        try:
+            mod = importlib.import_module(module)
+            scraper_cls = getattr(mod, klass)
+            stats = scraper_cls().run()
+            print(f"[{klass}] resultaat: {stats}")
+            return stats
+        except Exception as exc:
+            print(f"[{klass}] FOUT (overgeslagen): {exc}")
     run.__name__ = f"run_{klass.lower()}"
     return run
 
@@ -121,8 +128,6 @@ with DAG(
                     execution_timeout=timedelta(minutes=30),
                     retries=1,
                     retry_delay=timedelta(minutes=3),
-                    # Start ook als vorige batch/branches-taak mislukt is
-                    trigger_rule=TriggerRule.ALL_DONE,
                 )
         batch_task_groups.append(tg)
 
@@ -131,7 +136,6 @@ with DAG(
         task_id="validate_links",
         python_callable=run_link_validation,
         execution_timeout=timedelta(hours=2),
-        trigger_rule=TriggerRule.ALL_DONE,
     )
 
     # ── Afhankelijkheden: branches → batch_00 → batch_01 → … → validate ──────
