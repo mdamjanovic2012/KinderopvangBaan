@@ -7,4 +7,4 @@ class DeEersteStapScraper(WordPressJobsScraper):
     company_name     = "De Eerste Stap"
     listing_url      = "https://werkenbijdeeerstestap.nl/vacatures"
     website_url      = "https://werkenbijdeeerstestap.nl"
-    job_url_contains = "/vacatures"
+    job_url_contains = "/vacature/"

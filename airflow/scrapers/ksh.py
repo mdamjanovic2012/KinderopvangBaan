@@ -7,4 +7,4 @@ class KshScraper(WordPressJobsScraper):
     company_name     = "KSH Kinderopvang"
     listing_url      = "https://www.werkenbijksh.nl/vacatures/"
     website_url      = "https://www.werkenbijksh.nl"
-    job_url_contains = "/vacatures/"
+    job_url_contains = "/vacature/"

@@ -7,4 +7,4 @@ class BzzzonderScraper(WordPressJobsScraper):
     company_name     = "Bzzzonder Kinderopvang"
     listing_url      = "https://www.werkenbijbzzzonder.nl/vacatures/"
     website_url      = "https://www.werkenbijbzzzonder.nl"
-    job_url_contains = "/vacatures/"
+    job_url_contains = "/Vacatures/"

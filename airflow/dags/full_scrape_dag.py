@@ -121,6 +121,7 @@ SCRAPERS = [
     ("t_nest",          "scrapers.t_nest",              "TNestScraper"),
     ("un1ek",           "scrapers.un1ek",               "Un1ekScraper"),
     ("yes_kinderopvang","scrapers.yes_kinderopvang",    "YesKinderopvangScraper"),
+    ("mundo",           "scrapers.mundo",               "MundoScraper"),
 ]
 
 BATCH_SIZE = 5

@@ -18,4 +18,4 @@ class HeroScraper(WordPressJobsScraper):
         "https://www.herokindercentra.nl/vacatures/peuteropvang/",
     ]
     website_url         = "https://www.herokindercentra.nl"
-    job_url_contains    = "/vacatures/"
+    job_url_contains    = "/vacatures-overzicht/"

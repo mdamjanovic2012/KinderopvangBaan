@@ -7,4 +7,4 @@ class VlietkinderenScraper(WordPressJobsScraper):
     company_name     = "Vlietkinderen"
     listing_url      = "https://werkenbij.vlietkinderen.nl/vacatures/"
     website_url      = "https://werkenbij.vlietkinderen.nl"
-    job_url_contains = "/vacatures/"
+    job_url_contains = "/vacature/"
