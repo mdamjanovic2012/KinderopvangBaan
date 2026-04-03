@@ -110,19 +110,25 @@ function AddressSearch({ onLocationSelect }) {
   );
 }
 
+const RADIUS_OPTIONS = [5, 10, 15, 25, 50];
+
 export default function MapPage() {
   const { user } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
   const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ job_type: "" });
+  const [filters, setFilters] = useState({ job_type: "", radius: null });
   const [userLocation, setUserLocation] = useState(null);
   const [mobileView, setMobileView] = useState("map");
 
   useEffect(() => {
     setLoading(true);
-    api.jobMapPins(filters.job_type || undefined)
+    const fetchJobs = userLocation && filters.radius
+      ? api.nearbyJobs({ lat: userLocation.lat, lng: userLocation.lng, radius: filters.radius, job_type: filters.job_type || undefined })
+      : api.jobMapPins({ job_type: filters.job_type || undefined });
+
+    fetchJobs
       .then((data) => {
         setJobs(data.results || []);
         setTotal(data.total ?? (data.results || []).length);
@@ -130,11 +136,14 @@ export default function MapPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [filters.job_type]);
+  }, [filters.job_type, filters.radius, userLocation]);
 
   const handleGeolocate = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setFilters((f) => ({ ...f, radius: f.radius ?? 15 }));
+      },
       () => alert("Locatie niet beschikbaar. Typ een adres in het zoekveld.")
     );
   };
@@ -161,7 +170,10 @@ export default function MapPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <AddressSearch onLocationSelect={setUserLocation} />
+          <AddressSearch onLocationSelect={(loc) => {
+            setUserLocation(loc);
+            setFilters((f) => ({ ...f, radius: f.radius ?? 15 }));
+          }} />
           <select
             value={filters.job_type}
             onChange={(e) => setFilters((f) => ({ ...f, job_type: e.target.value }))}
@@ -172,6 +184,36 @@ export default function MapPage() {
             ))}
           </select>
         </div>
+
+        {/* Radius filter — alleen zichtbaar als locatie bekend is */}
+        {userLocation && (
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <span className="text-xs text-gray-500 shrink-0">Straal:</span>
+            {RADIUS_OPTIONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setFilters((f) => ({ ...f, radius: r }))}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                  filters.radius === r
+                    ? "bg-blue-700 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-blue-100"
+                }`}
+              >
+                {r} km
+              </button>
+            ))}
+            <button
+              onClick={() => setFilters((f) => ({ ...f, radius: null }))}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                filters.radius === null
+                  ? "bg-blue-700 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-blue-100"
+              }`}
+            >
+              Alle
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Mobile toggle */}

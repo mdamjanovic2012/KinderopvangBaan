@@ -228,11 +228,13 @@ export default function JobDetailPage({ params }) {
                   </div>
                 </div>
               )}
-              {job.city && (
+              {(job.street || job.city) && (
                 <div>
                   <div className="text-xs text-gray-400 mb-0.5">Locatie</div>
                   <div className="text-sm font-medium text-gray-700">
-                    {job.location_name || job.city}
+                    {job.street
+                      ? `${job.street}, ${job.postcode} ${job.city}`.trim().replace(/,\s*$/, "")
+                      : job.location_name || job.city}
                   </div>
                 </div>
               )}
