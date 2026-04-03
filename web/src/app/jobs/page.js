@@ -30,7 +30,7 @@ const RADIUS_OPTIONS = [5, 10, 15, 20];
 
 const CONTRACT_COLORS = {
   fulltime: "bg-blue-50 text-blue-600",
-  parttime: "bg-emerald-50 text-emerald-600",
+  parttime: "bg-orange-50 text-orange-600",
   temp: "bg-purple-50 text-purple-600",
 };
 
@@ -142,16 +142,22 @@ function JobCard({ job, blurred = false }) {
         <div className="hidden sm:block w-px bg-gray-100 my-4" />
 
         {/* Right: salary + badges */}
-        <div className="sm:w-44 shrink-0 p-5 flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3">
-          {(job.salary_min || job.salary_max) ? (
-            <div className="text-right">
-              <div className="text-base font-bold text-gray-900">
-                €{job.salary_min}
-                {job.salary_max && job.salary_max !== job.salary_min && `–${job.salary_max}`}
-              </div>
-              <div className="text-xs text-gray-400">per maand</div>
-            </div>
-          ) : <div />}
+        <div className="sm:w-44 shrink-0 px-5 pb-5 sm:py-5 sm:pl-0 flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3">
+          <div className="text-right">
+            {(job.salary_min || job.salary_max) ? (
+              <>
+                <div className="text-base font-bold text-gray-900">
+                  €{Math.round(job.salary_min).toLocaleString("nl-NL")}
+                  {job.salary_max && Number(job.salary_max) !== Number(job.salary_min) && (
+                    <> – €{Math.round(job.salary_max).toLocaleString("nl-NL")}</>
+                  )}
+                </div>
+                <div className="text-xs text-gray-400">per maand</div>
+              </>
+            ) : (
+              <div className="text-xs text-gray-300 italic">salaris n.o.t.k.</div>
+            )}
+          </div>
 
           <div className="flex flex-col items-end gap-1.5">
             {job.contract_type && (
