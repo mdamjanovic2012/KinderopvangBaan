@@ -63,6 +63,7 @@ class Job(gis_models.Model):
 
     # Locatie van de specifieke kinderopvang locatie
     location_name = models.CharField(max_length=255, blank=True)
+    street = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
     postcode = models.CharField(max_length=10, blank=True)
     location = gis_models.PointField(null=True, blank=True)

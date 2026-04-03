@@ -238,14 +238,13 @@ class BaseScraper:
                 unique_locations = {j["location_name"] for j in jobs if j.get("location_name")}
                 geo_cache = geocode_locations(cur, unique_locations)
 
-                # Verrijk met precieze vestiging-coördinaten als fallback
+                # Verrijk met precieze vestiging-adressen als fallback
                 try:
                     from scrapers.branches import match_vestiging
                     for job in jobs:
                         loc_name = job.get("location_name", "")
                         city = job.get("city", "")
                         existing_geo = geo_cache.get(loc_name, {})
-                        # Alleen verrijken als we geen postcode-niveau precisie hebben
                         if not existing_geo.get("postcode"):
                             vestiging = match_vestiging(cur, self.company_slug, loc_name, city)
                             if vestiging:
@@ -294,8 +293,27 @@ class BaseScraper:
                     geo = geo_cache.get(loc_name, {})
                     city = geo.get("city") or job.get("city", "")
                     postcode = geo.get("postcode") or job.get("postcode", "")
+                    street = geo.get("street", "")
                     lon = geo.get("lon")
                     lat = geo.get("lat")
+
+                    # Titel-gebaseerde fallback als we nog geen precies branch-adres hebben
+                    if not street:
+                        try:
+                            from scrapers.branches import match_vestiging
+                            v = match_vestiging(
+                                cur, self.company_slug, loc_name, city,
+                                job.get("title", "")
+                            )
+                            if v:
+                                street = v.get("street", "")
+                                if not postcode and v.get("postcode"):
+                                    postcode = v["postcode"]
+                                    city = v.get("city") or city
+                                    lon = v.get("lon") or lon
+                                    lat = v.get("lat") or lat
+                        except Exception:
+                            pass
 
                     params = {
                         "company_id": company_id,
@@ -305,6 +323,7 @@ class BaseScraper:
                         "location_name": loc_name,
                         "city": city,
                         "postcode": postcode,
+                        "street": street,
                         "lon": lon,
                         "lat": lat,
                         "salary_min": job.get("salary_min"),
@@ -330,6 +349,7 @@ class BaseScraper:
                                 location_name    = %(location_name)s,
                                 city             = %(city)s,
                                 postcode         = %(postcode)s,
+                                street           = %(street)s,
                                 location         = CASE
                                                      WHEN %(lon)s IS NOT NULL
                                                      THEN ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)
@@ -357,7 +377,7 @@ class BaseScraper:
                             """
                             INSERT INTO jobs_job (
                                 company_id, title, short_description, description,
-                                location_name, city, postcode, location,
+                                location_name, city, postcode, street, location,
                                 salary_min, salary_max, hours_min, hours_max,
                                 age_min, age_max, contract_type, job_type,
                                 source_url, external_id, last_seen_at,
@@ -366,7 +386,7 @@ class BaseScraper:
                                 min_experience, created_at, updated_at
                             ) VALUES (
                                 %(company_id)s, %(title)s, %(short_description)s, %(description)s,
-                                %(location_name)s, %(city)s, %(postcode)s,
+                                %(location_name)s, %(city)s, %(postcode)s, %(street)s,
                                 CASE WHEN %(lon)s IS NOT NULL
                                      THEN ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)
                                      ELSE NULL END,

@@ -126,15 +126,33 @@ def upsert_vestiging(cur, company_slug: str, name: str, street: str,
         """, (company_slug, name, street, postcode, city))
 
 
-def match_vestiging(cur, company_slug: str, location_name: str, city: str) -> dict | None:
+def match_vestiging(
+    cur, company_slug: str, location_name: str, city: str, title: str = ""
+) -> dict | None:
     """
-    Find precise branch coordinates for a job vacancy.
-    Returns {lon, lat, postcode, city} or None.
+    Find precise branch address for a job vacancy.
+    Returns {street, postcode, city, lon, lat} or None.
+
+    Matching order:
+      1. Exact / partial name match on location_name
+      2. Branch name extracted from |-separated job title
+      3. City + title part combination
+      4. City fallback — first branch alphabetically (gives a real postcode)
     """
-    # 1. Exact name match
+
+    def _row(row) -> dict:
+        return {
+            "street":   row[0] or "",
+            "postcode": row[1] or "",
+            "city":     row[2] or "",
+            "lon":      row[3],
+            "lat":      row[4],
+        }
+
+    # 1. Exact name match on location_name
     if location_name:
         cur.execute("""
-            SELECT postcode, city,
+            SELECT street, postcode, city,
                    ST_X(location::geometry) AS lon,
                    ST_Y(location::geometry) AS lat
             FROM jobs_vestiging
@@ -144,43 +162,127 @@ def match_vestiging(cur, company_slug: str, location_name: str, city: str) -> di
         """, (company_slug, location_name))
         row = cur.fetchone()
         if row:
-            return {"postcode": row[0], "city": row[1], "lon": row[2], "lat": row[3]}
+            return _row(row)
 
-        # Partial name match (branch name contains location_name or vice versa)
+        # Partial match — alleen als branch naam de location_name bevat
         cur.execute("""
-            SELECT postcode, city,
+            SELECT street, postcode, city,
                    ST_X(location::geometry) AS lon,
                    ST_Y(location::geometry) AS lat
             FROM jobs_vestiging
             WHERE company_slug = %s
-              AND (LOWER(name) LIKE LOWER(%s) OR LOWER(%s) LIKE LOWER(CONCAT('%%', name, '%%')))
+              AND LOWER(name) LIKE LOWER(%s)
               AND location IS NOT NULL
             LIMIT 1
-        """, (company_slug, f"%{location_name}%", location_name))
+        """, (company_slug, f"%{location_name}%"))
         row = cur.fetchone()
         if row:
-            return {"postcode": row[0], "city": row[1], "lon": row[2], "lat": row[3]}
+            return _row(row)
 
-    # 2. City match — single branch: use exact coords; multiple: use centroid
-    if city:
+    # 2. Title-based branch name extraction ("Type | BranchName | Role")
+    _TYPE_PREFIXES = {
+        "kdv", "bso", "ikc", "kindcentrum", "kinderdagverblijf", "kinderopvang",
+        "speelgroep", "peutergroep", "peuterspeelzaal", "buitenschoolseopvang",
+        "dagopvang", "gastouderbureau", "vso",
+    }
+
+    def _title_candidates(t: str) -> list[str]:
+        """Geeft zoektermen op basis van job-titel: volledige deel + variant zonder type-prefix."""
+        parts = [p.strip() for p in t.split("|") if p.strip() and len(p.strip()) >= 3]
+        candidates = list(parts)
+        for part in parts:
+            words = part.split()
+            if words and words[0].lower().rstrip(".") in _TYPE_PREFIXES and len(words) > 1:
+                candidates.append(" ".join(words[1:]))
+        return candidates
+
+    title_parts = _title_candidates(title) if title else []
+
+    for part in title_parts:
         cur.execute("""
-            SELECT postcode, city,
+            SELECT street, postcode, city,
+                   ST_X(location::geometry) AS lon,
+                   ST_Y(location::geometry) AS lat
+            FROM jobs_vestiging
+            WHERE company_slug = %s
+              AND (LOWER(TRIM(name)) = LOWER(TRIM(%s))
+                   OR LOWER(name) LIKE LOWER(%s)
+                   OR LOWER(%s) LIKE LOWER(CONCAT('%%', name, '%%')))
+              AND location IS NOT NULL
+            LIMIT 1
+        """, (company_slug, part, f"%{part}%", part))
+        row = cur.fetchone()
+        if row:
+            return _row(row)
+
+    # 2b. Specifieke woorden uit de titel als branch-fragment zoeken
+    #     Nuttig voor titels als "PM bij KDV Zijlwatering" → branch "Norlandia BSO Zijlwatering – Wassenaar"
+    if title:
+        _STOPWORDS = {
+            "de", "het", "een", "van", "bij", "voor", "met", "aan", "op",
+            "zijn", "haar", "als", "ook", "maar", "nog", "dan", "wel",
+            "niet", "dit", "dat", "die", "deze", "om", "en", "of", "in",
+            "te", "naar", "uit", "over", "door", "per", "tot", "na",
+            "pedagogisch", "medewerker", "professional", "werken", "werk",
+            "vacature", "fulltime", "parttime", "flex", "tijdelijk",
+            "zoekt", "jou", "zoek", "groep", "babygroep", "verticale",
+        }
+        title_words = [
+            w for w in re.sub(r"[^\w\s]", " ", title).split()
+            if len(w) >= 5 and w.lower() not in _STOPWORDS
+        ]
+        for word in title_words:
+            cur.execute("""
+                SELECT street, postcode, city,
+                       ST_X(location::geometry) AS lon,
+                       ST_Y(location::geometry) AS lat
+                FROM jobs_vestiging
+                WHERE company_slug = %s
+                  AND LOWER(name) LIKE LOWER(%s)
+                  AND location IS NOT NULL
+                ORDER BY LENGTH(name) DESC
+                LIMIT 1
+            """, (company_slug, f"%{word}%"))
+            row = cur.fetchone()
+            if row:
+                return _row(row)
+
+    # 3. City match
+    if city:
+        # City + title part combination
+        for part in title_parts:
+            cur.execute("""
+                SELECT street, postcode, city,
+                       ST_X(location::geometry) AS lon,
+                       ST_Y(location::geometry) AS lat
+                FROM jobs_vestiging
+                WHERE company_slug = %s
+                  AND LOWER(TRIM(city)) = LOWER(TRIM(%s))
+                  AND (LOWER(TRIM(name)) = LOWER(TRIM(%s))
+                       OR LOWER(name) LIKE LOWER(%s)
+                       OR LOWER(%s) LIKE LOWER(CONCAT('%%', name, '%%')))
+                  AND location IS NOT NULL
+                LIMIT 1
+            """, (company_slug, city, part, f"%{part}%", part))
+            row = cur.fetchone()
+            if row:
+                return _row(row)
+
+        # City-only fallback — first branch alphabetically gives a real address
+        cur.execute("""
+            SELECT street, postcode, city,
                    ST_X(location::geometry) AS lon,
                    ST_Y(location::geometry) AS lat
             FROM jobs_vestiging
             WHERE company_slug = %s
               AND LOWER(TRIM(city)) = LOWER(TRIM(%s))
               AND location IS NOT NULL
+            ORDER BY name
+            LIMIT 1
         """, (company_slug, city))
-        rows = cur.fetchall()
-        if len(rows) == 1:
-            return {"postcode": rows[0][0], "city": rows[0][1], "lon": rows[0][2], "lat": rows[0][3]}
-        elif len(rows) > 1:
-            # Multiple branches in city — use centroid so jobs spread out better
-            # than pointing at the generic PDOK city centre
-            avg_lon = sum(r[2] for r in rows) / len(rows)
-            avg_lat = sum(r[3] for r in rows) / len(rows)
-            return {"postcode": "", "city": rows[0][1], "lon": avg_lon, "lat": avg_lat}
+        row = cur.fetchone()
+        if row:
+            return _row(row)
 
     return None
 
@@ -1669,7 +1771,63 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                     + (" (from job data)" if fallback_used else "")
                 )
 
+        # Na kraju: verrijk bestaande jobs zonder straat/postcode
+        enriched = _enrich_existing_jobs(conn)
+        logger.info(f"[branches] {enriched} bestaande jobs verrijkt met vestiging-adres")
+        stats["_enriched_jobs"] = enriched
+
     finally:
         conn.close()
 
     return stats
+
+
+def _enrich_existing_jobs(conn) -> int:
+    """
+    Update bestaande jobs zonder straat/postcode op basis van vestiging-data.
+    Wordt aangeroepen na run_vestigingen_scrape zodat verse branch-data meteen
+    doorvloeit naar de bijbehorende vacatures.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT j.id, c.slug, j.location_name, j.city, j.title
+            FROM jobs_job j
+            JOIN jobs_company c ON c.id = j.company_id
+            WHERE j.is_active = TRUE
+              AND (j.street IS NULL OR j.street = '')
+        """)
+        jobs = cur.fetchall()
+
+    updates: list[tuple] = []
+    for job_id, company_slug, loc_name, city, title in jobs:
+        with conn.cursor() as cur:
+            v = match_vestiging(cur, company_slug, loc_name or "", city or "", title or "")
+        if v and (v.get("street") or v.get("postcode")):
+            updates.append((
+                v.get("street", ""),
+                v.get("postcode", ""),
+                v.get("city", "") or city or "",
+                v.get("lon"),
+                v.get("lat"),
+                job_id,
+            ))
+
+    if not updates:
+        return 0
+
+    with conn.cursor() as cur:
+        for street, postcode, city, lon, lat, job_id in updates:
+            cur.execute("""
+                UPDATE jobs_job SET
+                    street    = CASE WHEN %s != '' THEN %s ELSE street END,
+                    postcode  = CASE WHEN %s != '' THEN %s ELSE postcode END,
+                    city      = CASE WHEN %s != '' THEN %s ELSE city END,
+                    location  = CASE WHEN %s IS NOT NULL
+                                     THEN ST_SetSRID(ST_MakePoint(%s, %s), 4326)
+                                     ELSE location END,
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (street, street, postcode, postcode, city, city,
+                  lon, lon, lat, job_id))
+    conn.commit()
+    return len(updates)

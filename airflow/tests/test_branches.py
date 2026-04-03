@@ -234,48 +234,51 @@ class TestMatchVestiging:
         return cur
 
     def test_exact_name_match(self):
-        row = ("3012EV", "Rotterdam", 4.48, 51.92)
+        # Nieuw formaat: (street, postcode, city, lon, lat)
+        row = ("Teststraat 1", "3012EV", "Rotterdam", 4.48, 51.92)
         cur = self._make_cur(fetchone=row)
         result = match_vestiging(cur, "test", "KDV De Ster", "Rotterdam")
         assert result is not None
         assert result["lon"] == 4.48
         assert result["city"] == "Rotterdam"
+        assert result["street"] == "Teststraat 1"
 
     def test_city_match_single_vestiging(self):
-        # No exact name match
+        # Geen exact name match → city fallback via fetchone (LIMIT 1)
         cur = MagicMock()
-        cur.fetchone = MagicMock(return_value=None)  # no exact name
-        cur.fetchall = MagicMock(return_value=[("3012EV", "Rotterdam", 4.48, 51.92)])
+        cur.fetchone = MagicMock(side_effect=[
+            None,  # exact match
+            None,  # partial match
+            ("Teststraat 1", "3012EV", "Rotterdam", 4.48, 51.92),  # city fallback
+        ])
         result = match_vestiging(cur, "test", "Rotterdam", "Rotterdam")
         assert result is not None
         assert result["lat"] == 51.92
 
-    def test_city_match_multiple_vestigingen_returns_centroid(self):
-        """Multiple branches in same city → centroid instead of None."""
+    def test_city_match_multiple_vestigingen_returns_first(self):
+        """Meerdere branches in zelfde stad → eerste branch alfabetisch (niet centroid)."""
         cur = MagicMock()
-        cur.fetchone = MagicMock(return_value=None)
-        cur.fetchall = MagicMock(return_value=[
-            ("3012EV", "Rotterdam", 4.48, 51.92),
-            ("3014AB", "Rotterdam", 4.50, 51.94),
+        cur.fetchone = MagicMock(side_effect=[
+            None,  # exact match
+            None,  # partial match
+            ("Astraat 1", "3012EV", "Rotterdam", 4.48, 51.92),  # city fallback eerste
         ])
         result = match_vestiging(cur, "test", "Rotterdam", "Rotterdam")
         assert result is not None
-        assert result["lon"] == pytest.approx(4.49)
-        assert result["lat"] == pytest.approx(51.93)
-        assert result["city"] == "Rotterdam"
-        assert result["postcode"] == ""
+        assert result["street"] == "Astraat 1"
+        assert result["postcode"] == "3012EV"
 
     def test_no_match_returns_none(self):
         cur = MagicMock()
         cur.fetchone = MagicMock(return_value=None)
-        cur.fetchall = MagicMock(return_value=[])
         result = match_vestiging(cur, "test", "Onbekend", "Onbekend")
         assert result is None
 
     def test_empty_location_name_tries_city(self):
         cur = MagicMock()
-        cur.fetchone = MagicMock(return_value=None)
-        cur.fetchall = MagicMock(return_value=[("1234AB", "Utrecht", 5.1, 52.1)])
+        cur.fetchone = MagicMock(side_effect=[
+            ("Teststraat 1", "1234AB", "Utrecht", 5.1, 52.1),  # city fallback
+        ])
         result = match_vestiging(cur, "test", "", "Utrecht")
         assert result is not None
 
@@ -365,7 +368,9 @@ class TestRunVestigenScrape:
             with patch("scrapers.branches.COMPANY_CONFIGS", fake_configs):
                 stats = run_vestigingen_scrape()
 
-        assert set(stats.keys()) == set(fake_configs.keys())
+        # _enriched_jobs is een extra meta-sleutel, geen bedrijf
+        company_keys = {k for k in stats.keys() if not k.startswith("_")}
+        assert company_keys == set(fake_configs.keys())
 
 
 # ── COMPANY_CONFIGS ───────────────────────────────────────────────────────────
