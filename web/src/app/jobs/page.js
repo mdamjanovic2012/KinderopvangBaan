@@ -19,6 +19,13 @@ const CONTRACT_OPTIONS = [
   { value: "temp", label: "Tijdelijk" },
 ];
 
+const HOURS_OPTIONS = [
+  { label: "Alle uren", hours_min: "", hours_max: "" },
+  { label: "≤ 24 uur", hours_min: "", hours_max: "24" },
+  { label: "24–32 uur", hours_min: "24", hours_max: "32" },
+  { label: "≥ 32 uur", hours_min: "32", hours_max: "" },
+];
+
 const RADIUS_OPTIONS = [5, 10, 15, 20];
 
 const CONTRACT_COLORS = {
@@ -128,6 +135,16 @@ async function lookupPostcode(postcode) {
   }
 }
 
+const EMPTY_FILTERS = {
+  job_type: "",
+  contract_type: "",
+  radius: 15,
+  city: "",
+  hours_min: "",
+  hours_max: "",
+  requires_diploma: "",
+};
+
 export default function JobsPage() {
   const { user, profile } = useAuth();
   const profileRadius = profile?.work_radius_km ?? null;
@@ -137,9 +154,10 @@ export default function JobsPage() {
   const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ job_type: "", contract_type: "", radius: profileRadius ?? 15 });
+  const [filters, setFilters] = useState({ ...EMPTY_FILTERS, radius: profileRadius ?? 15 });
   const [mode, setMode] = useState("all");
   const [userLocation, setUserLocation] = useState(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (profileRadius) setFilters((f) => ({ ...f, radius: profileRadius }));
@@ -157,13 +175,21 @@ export default function JobsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.postcode]);
 
+  const buildParams = useCallback(() => {
+    const p = {};
+    if (filters.job_type) p.job_type = filters.job_type;
+    if (filters.contract_type) p.contract_type = filters.contract_type;
+    if (filters.city) p.city = filters.city;
+    if (filters.hours_min) p.hours_min = filters.hours_min;
+    if (filters.hours_max) p.hours_max = filters.hours_max;
+    if (filters.requires_diploma !== "") p.requires_diploma = filters.requires_diploma;
+    if (search) p.search = search;
+    return p;
+  }, [filters, search]);
+
   const loadAll = useCallback(() => {
     setLoading(true);
-    const params = {};
-    if (filters.job_type) params.job_type = filters.job_type;
-    if (filters.contract_type) params.contract_type = filters.contract_type;
-    if (search) params.search = search;
-    api.jobs(params)
+    api.jobs(buildParams())
       .then((data) => {
         setJobs(data.results || []);
         setTotal(data.total ?? (data.results || []).length);
@@ -171,7 +197,7 @@ export default function JobsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [filters, search]);
+  }, [buildParams]);
 
   const loadNearby = useCallback(() => {
     if (!userLocation) return;
@@ -180,7 +206,7 @@ export default function JobsPage() {
       lat: userLocation.lat,
       lng: userLocation.lng,
       radius: filters.radius,
-      type: filters.job_type || undefined,
+      ...buildParams(),
     })
       .then((data) => {
         setJobs(data.results || []);
@@ -189,7 +215,7 @@ export default function JobsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [userLocation, filters]);
+  }, [userLocation, filters.radius, buildParams]);
 
   useEffect(() => {
     if (mode === "all") loadAll();
@@ -210,6 +236,20 @@ export default function JobsPage() {
     e.preventDefault();
     if (mode === "all") loadAll();
   };
+
+  const setHours = (opt) => {
+    setFilters((f) => ({ ...f, hours_min: opt.hours_min, hours_max: opt.hours_max }));
+  };
+
+  const activeHoursOption = HOURS_OPTIONS.find(
+    (o) => o.hours_min === filters.hours_min && o.hours_max === filters.hours_max
+  ) ?? HOURS_OPTIONS[0];
+
+  const advancedCount = [
+    filters.city,
+    filters.hours_min || filters.hours_max,
+    filters.requires_diploma,
+  ].filter(Boolean).length;
 
   const hiddenCount = total - jobs.length;
 
@@ -251,6 +291,22 @@ export default function JobsPage() {
           </select>
 
           <button
+            onClick={() => setAdvancedOpen((o) => !o)}
+            className={`relative flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              advancedOpen || advancedCount > 0
+                ? "bg-blue-50 border-blue-200 text-blue-700"
+                : "bg-white border-gray-200 text-gray-600 hover:border-blue-200"
+            }`}
+          >
+            Geavanceerd {advancedOpen ? "▴" : "▾"}
+            {advancedCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {advancedCount}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={handleGeolocate}
             className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg hover:bg-blue-800 transition-colors shrink-0"
           >
@@ -266,6 +322,77 @@ export default function JobsPage() {
             </button>
           )}
         </div>
+
+        {/* Advanced filter panel */}
+        {advancedOpen && (
+          <div className="border-t border-gray-100 bg-gray-50">
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap gap-6">
+              {/* City */}
+              <div className="flex flex-col gap-1.5 min-w-40">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stad</label>
+                <input
+                  type="text"
+                  value={filters.city}
+                  onChange={(e) => setFilters((f) => ({ ...f, city: e.target.value }))}
+                  placeholder="bijv. Amsterdam"
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+
+              {/* Hours */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Uren per week</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {HOURS_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.label}
+                      onClick={() => setHours(opt)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        activeHoursOption.label === opt.label
+                          ? "bg-blue-700 text-white border-blue-700"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Diploma */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Diploma vereist</label>
+                <div className="flex gap-1.5">
+                  {[{ label: "Alle", value: "" }, { label: "Ja", value: "true" }, { label: "Nee", value: "false" }].map((opt) => (
+                    <button
+                      key={opt.label}
+                      onClick={() => setFilters((f) => ({ ...f, requires_diploma: opt.value }))}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        filters.requires_diploma === opt.value
+                          ? "bg-blue-700 text-white border-blue-700"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset */}
+              {advancedCount > 0 && (
+                <div className="flex items-end">
+                  <button
+                    onClick={() => setFilters((f) => ({ ...f, city: "", hours_min: "", hours_max: "", requires_diploma: "" }))}
+                    className="text-sm text-gray-400 hover:text-red-500 transition-colors underline"
+                  >
+                    Wis filters
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Radius banner */}
@@ -328,14 +455,12 @@ export default function JobsPage() {
         {/* Blur CTA voor gasten */}
         {blurred && !user && hiddenCount > 0 && (
           <div className="relative mt-3">
-            {/* Voorbeeld van verborgen kaarten */}
             <div className="space-y-3 pointer-events-none select-none">
               {Array.from({ length: Math.min(hiddenCount, 3) }).map((_, i) => (
                 <div key={i} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm blur-sm h-24" />
               ))}
             </div>
 
-            {/* Overlay CTA */}
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-t from-gray-50 via-gray-50/80 to-transparent rounded-2xl px-4 py-8">
               <p className="text-sm font-semibold text-gray-800 mb-1">
                 Nog <strong>{hiddenCount}</strong> vacatures verborgen
