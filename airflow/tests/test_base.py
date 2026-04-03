@@ -328,7 +328,8 @@ class TestBaseScrapeRun:
 
         with patch("scrapers.base.get_connection", return_value=conn):
             with patch("scrapers.base.geocode_locations", return_value=geo_cache):
-                result = scraper.run()
+                with patch("scrapers.branches.match_vestiging", return_value=None):
+                    result = scraper.run()
 
         assert result["inserted"] == 1
         insert_calls = [c for c in cur.execute.call_args_list if "INSERT INTO jobs_job" in str(c)]
