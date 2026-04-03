@@ -1,6 +1,6 @@
 import os
 import psycopg2
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 
 def get_connection() -> psycopg2.extensions.connection:
@@ -14,12 +14,12 @@ def get_connection() -> psycopg2.extensions.connection:
 
     # Azure Key Vault references zijn al opgelost door ACI via env inject
     p = urlparse(raw)
-    # SSL verplicht voor Azure PostgreSQL; optioneel voor lokale dev
+    # urlparse decodeert geen percent-encoding in username/password — dit doen we zelf
     sslmode = "disable" if p.hostname in ("localhost", "127.0.0.1") else "require"
     return psycopg2.connect(
         dbname=p.path.lstrip("/"),
-        user=p.username,
-        password=p.password,
+        user=unquote(p.username or ""),
+        password=unquote(p.password or ""),
         host=p.hostname,
         port=p.port or 5432,
         sslmode=sslmode,

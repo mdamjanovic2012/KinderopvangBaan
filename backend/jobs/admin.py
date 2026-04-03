@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from .models import Company, GeocodedLocation, Job, VacatureClick
+from .models import Branch, Company, GeocodedLocation, Job, VacatureClick
 
 
 @admin.register(Company)
@@ -91,6 +91,15 @@ class JobAdmin(ModelAdmin):
     @admin.action(description="Verwijder premium status")
     def unmark_premium(self, request, queryset):
         queryset.update(is_premium=False)
+
+
+@admin.register(Branch)
+class BranchAdmin(ModelAdmin):
+    list_display = ["name", "company_slug", "street", "postcode", "city", "geocoded_at"]
+    list_filter = ["company_slug"]
+    search_fields = ["name", "city", "postcode", "company_slug"]
+    readonly_fields = ["geocoded_at", "created_at", "updated_at"]
+    ordering = ["company_slug", "name"]
 
 
 @admin.register(VacatureClick)

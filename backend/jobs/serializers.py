@@ -19,7 +19,7 @@ class JobSerializer(serializers.ModelSerializer):
             "id", "title", "job_type", "contract_type",
             "short_description", "description",
             "company", "company_name", "company_logo",
-            "location_name", "city", "postcode", "location",
+            "location_name", "street", "city", "postcode", "location",
             "salary_min", "salary_max",
             "hours_min", "hours_max",
             "age_min", "age_max",

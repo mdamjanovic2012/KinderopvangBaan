@@ -37,9 +37,15 @@ JOBS_URL = f"{BASE_URL}/vacatures-kinderopvang-en-kindontwikkeling"
 BANNER_CONTENT_ID = "P_C_W_DE4F98294C77056F1870AF8B77D269DD_Content"
 
 # ── Regex parsers ──────────────────────────────────────────────────────────────
-HOURS_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)", re.I)
-SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
-AGE_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*jaar", re.I)
+HOURS_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)", re.I)
+SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+AGE_RE      = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*jaar", re.I)
+POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
 
 CONTRACT_MAP = {
     "fulltime":  "fulltime",
@@ -87,7 +93,7 @@ def _werksoort_to_job_type(werksoort: str) -> str:
     return ""
 
 
-def _render_page(context: BrowserContext, url: str, wait_for_id: str | None = None) -> str:
+def _render_page(context: BrowserContext, url: str, wait_for_id: str | None = None) -> str:  # pragma: no cover
     """Render een pagina met Playwright en geef de volledige HTML terug."""
     page = context.new_page()
     try:
@@ -165,6 +171,8 @@ def _extract_cards_from_regio_page(html: str) -> list[dict]:
             "short_description": "",
             "description":      "",
             "location_name":    location,
+            "city":             "",
+            "postcode":         "",
             "salary_min":       None,
             "salary_max":       None,
             "hours_min":        hours_min,
@@ -195,6 +203,45 @@ def _extract_description_from_html(html: str) -> str:
             if len(text) > 50:
                 return text[:5000]
     return ""
+
+
+def _extract_address_from_html(html: str) -> tuple[str, str, str]:
+    """
+    Extraheer adres (postcode, stad, locatie_naam) van een detailpagina.
+    Geeft (postcode, city, location_name) terug — leeg als niet gevonden.
+    """
+    if not html:
+        return "", "", ""
+    soup = BeautifulSoup(html, "lxml")
+    main = soup.find("main") or soup.find("article") or soup
+    text = main.get_text(separator=" ", strip=True)
+
+    pc_m = POSTCODE_RE.search(text)
+    if not pc_m:
+        return "", "", ""
+
+    postcode = pc_m.group(1).replace(" ", "")
+
+    # City after postcode
+    after = text[pc_m.end():pc_m.end() + 80]
+    city_m = re.match(
+        r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,40}?)(?:\s*[•·\n]|\s{2,}|\s+[A-Z][a-z]|\s*$)",
+        after,
+    )
+    city = city_m.group(1).strip() if city_m else ""
+
+    # Street + number before postcode
+    before = text[max(0, pc_m.start() - 120):pc_m.start()]
+    st_m = STREET_RE.search(before + " " + pc_m.group(1))
+    if st_m:
+        street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+        location_name = f"{street}, {postcode} {city}".strip(", ").strip()
+    elif city:
+        location_name = f"{postcode} {city}"
+    else:
+        location_name = postcode
+
+    return postcode, city, location_name
 
 
 class KinderdamScraper(BaseScraper):
@@ -237,7 +284,7 @@ class KinderdamScraper(BaseScraper):
     def fetch_jobs(self) -> list[dict]:
         logger.info(f"[kinderdam] Start scrape via Playwright: {JOBS_URL}")
 
-        with sync_playwright() as pw:
+        with sync_playwright() as pw:  # pragma: no cover
             browser = pw.chromium.launch(headless=True)
             context = browser.new_context(
                 user_agent=SCRAPER_HEADERS["User-Agent"],
@@ -273,12 +320,19 @@ class KinderdamScraper(BaseScraper):
                 if not jobs:
                     return []
 
-                # Niveau 3: detailpagina's → beschrijvingen
+                # Niveau 3: detailpagina's → beschrijvingen + adres
                 logger.info(f"[kinderdam] Detail scraping voor {len(jobs)} vacatures...")
                 for job in jobs:
                     try:
                         detail_html = _render_page(context, job["source_url"])
                         job["description"] = _extract_description_from_html(detail_html)
+                        postcode, city, location_name = _extract_address_from_html(detail_html)
+                        if location_name:
+                            job["location_name"] = location_name
+                        if postcode:
+                            job["postcode"] = postcode
+                        if city and not job.get("city"):
+                            job["city"] = city
                         time.sleep(0.5)
                     except Exception as exc:
                         logger.warning(f"[kinderdam] Detail mislukt {job['source_url']}: {exc}")

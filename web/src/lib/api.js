@@ -23,18 +23,22 @@ export const api = {
   get: (path) => request(path),
 
   // Jobs
-  jobMapPins: (jobType) => {
-    const qs = jobType ? `?job_type=${jobType}` : "";
-    return request(`/jobs/map-pins/${qs}`);
+  jobMapPins: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))
+    ).toString();
+    return request(`/jobs/map-pins/${qs ? "?" + qs : ""}`);
   },
   jobs: (params = {}) => {
-    const qs = new URLSearchParams(params).toString();
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params).filter(([, v]) => v !== "" && v != null))
+    ).toString();
     return request(`/jobs/?${qs}`);
   },
   job: (id) => request(`/jobs/${id}/`),
-  nearbyJobs: ({ lat, lng, radius = 15, type } = {}) => {
+  nearbyJobs: ({ lat, lng, radius = 15, ...extra } = {}) => {
     const params = new URLSearchParams({ lat, lng, radius });
-    if (type) params.set("job_type", type);
+    Object.entries(extra).forEach(([k, v]) => { if (v !== "" && v != null) params.set(k, v); });
     return request(`/jobs/nearby/?${params}`);
   },
   clickJob: (jobId) =>

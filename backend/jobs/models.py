@@ -63,6 +63,7 @@ class Job(gis_models.Model):
 
     # Locatie van de specifieke kinderopvang locatie
     location_name = models.CharField(max_length=255, blank=True)
+    street = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
     postcode = models.CharField(max_length=10, blank=True)
     location = gis_models.PointField(null=True, blank=True)
@@ -101,6 +102,29 @@ class Job(gis_models.Model):
 
     def __str__(self):
         return f"{self.title} @ {self.company.name}"
+
+
+class Branch(gis_models.Model):
+    """Precise branch address of a childcare company, used for street-level geocoding."""
+    company_slug = models.SlugField(max_length=100)
+    name = models.CharField(max_length=255)
+    street = models.CharField(max_length=255, blank=True)
+    postcode = models.CharField(max_length=10, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    location = gis_models.PointField(null=True, blank=True)
+    geocoded_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "jobs_vestiging"
+        unique_together = [("company_slug", "name")]
+        ordering = ["company_slug", "name"]
+        verbose_name = "branch"
+        verbose_name_plural = "branches"
+
+    def __str__(self):
+        return f"{self.name} ({self.company_slug}) — {self.city}"
 
 
 class VacatureClick(models.Model):
