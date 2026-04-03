@@ -44,11 +44,18 @@ function JobCard({ job, blurred = false }) {
   const daysAgo = Math.floor(
     (new Date() - new Date(job.created_at)) / (1000 * 60 * 60 * 24)
   );
+  const dateLabel = daysAgo === 0 ? "Vandaag geplaatst" : daysAgo === 1 ? "Gisteren geplaatst" : `${daysAgo} dagen geleden`;
+  const isGoodMatch = job.distance_km != null && job.distance_km <= 5;
+  const hoursLabel = job.hours_min && job.hours_max && job.hours_min !== job.hours_max
+    ? `${job.hours_min}–${job.hours_max} uur`
+    : job.hours_min || job.hours_max
+      ? `${job.hours_min || job.hours_max} uur`
+      : null;
 
   return (
     <Link
       href={blurred ? "/register" : `/jobs/${job.id}`}
-      className={`block bg-white rounded-2xl p-5 border border-gray-100 shadow-sm transition-all group relative ${
+      className={`block bg-white rounded-2xl border border-gray-100 shadow-sm transition-all group relative overflow-hidden ${
         blurred
           ? "blur-sm pointer-events-none select-none"
           : "hover:border-blue-200 hover:shadow-md"
@@ -56,60 +63,114 @@ function JobCard({ job, blurred = false }) {
       tabIndex={blurred ? -1 : undefined}
       aria-hidden={blurred}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CONTRACT_COLORS[job.contract_type] || "bg-gray-100 text-gray-600"}`}>
-              {CONTRACT_LABELS[job.contract_type] || job.contract_type}
-            </span>
-            {job.is_premium && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-600">
-                Uitgelicht
-              </span>
+      {job.is_premium && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-yellow-400 to-amber-500" />
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-stretch">
+        {/* Left: main content */}
+        <div className="flex-1 min-w-0 p-5">
+          <div className="flex items-start gap-3">
+            {/* Logo */}
+            {job.company_logo ? (
+              <img
+                src={job.company_logo}
+                alt={job.company_name}
+                className="w-12 h-12 rounded-xl object-contain border border-gray-100 shrink-0 bg-white"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center shrink-0 text-blue-600 font-bold text-lg">
+                {job.company_name?.[0] ?? "?"}
+              </div>
             )}
-            {job.age_min != null && job.age_max != null && (
-              <span className="text-xs text-gray-400">{job.age_min}–{job.age_max} jaar</span>
-            )}
+
+            <div className="flex-1 min-w-0">
+              {/* Title */}
+              <h3 className="font-bold text-gray-900 group-hover:text-blue-700 transition-colors leading-snug mb-1">
+                {job.title}
+              </h3>
+
+              {/* Location row */}
+              <div className="flex items-center gap-2 flex-wrap text-sm text-gray-500 mb-1">
+                <span className="flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {job.city || job.location_name || "–"}
+                  {job.distance_km != null && (
+                    <span className="text-blue-600 font-medium">· {job.distance_km} km van jou</span>
+                  )}
+                </span>
+                {hoursLabel && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
+                    {hoursLabel}
+                  </span>
+                )}
+              </div>
+
+              {/* Hours + date */}
+              <div className="flex items-center gap-3 flex-wrap text-xs text-gray-400 mb-1">
+                {hoursLabel && (
+                  <span className="flex items-center gap-1">
+                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="10"/><path strokeLinecap="round" d="M12 6v6l4 2"/>
+                    </svg>
+                    {hoursLabel} per week
+                  </span>
+                )}
+                <span className="flex items-center gap-1">
+                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                  {dateLabel}
+                </span>
+              </div>
+
+              {/* Company name */}
+              <div className="text-sm font-semibold text-blue-800 mb-2">{job.company_name}</div>
+
+              {/* Short description */}
+              {job.short_description && (
+                <p className="text-sm text-gray-400 line-clamp-1 leading-relaxed">
+                  {job.short_description}
+                </p>
+              )}
+            </div>
           </div>
-
-          <h3 className="font-semibold text-gray-900 group-hover:text-blue-700 transition-colors mb-0.5">
-            {job.title}
-          </h3>
-
-          <div className="text-sm text-gray-500 mb-3">
-            <span className="font-medium text-gray-700">{job.company_name}</span>
-            {job.location_name && job.location_name !== job.company_name && (
-              <> · <span>{job.location_name}</span></>
-            )}
-            {job.city && <> · {job.city}</>}
-            {job.distance_km != null && (
-              <span className="text-blue-600 font-medium"> · {job.distance_km} km</span>
-            )}
-          </div>
-
-          {job.short_description && (
-            <p className="text-sm text-gray-400 line-clamp-2 leading-relaxed">
-              {job.short_description}
-            </p>
-          )}
         </div>
 
-        <div className="shrink-0 text-right">
-          {(job.salary_min || job.salary_max) && (
-            <div className="text-sm font-semibold text-gray-900 mb-1">
-              €{job.salary_min}
-              {job.salary_max && job.salary_max !== job.salary_min && `–${job.salary_max}`}
+        {/* Divider */}
+        <div className="hidden sm:block w-px bg-gray-100 my-4" />
+
+        {/* Right: salary + badges */}
+        <div className="sm:w-44 shrink-0 p-5 flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3">
+          {(job.salary_min || job.salary_max) ? (
+            <div className="text-right">
+              <div className="text-base font-bold text-gray-900">
+                €{job.salary_min}
+                {job.salary_max && job.salary_max !== job.salary_min && `–${job.salary_max}`}
+              </div>
+              <div className="text-xs text-gray-400">per maand</div>
             </div>
-          )}
-          {(job.hours_min || job.hours_max) && (
-            <div className="text-xs text-gray-400">
-              {job.hours_min && job.hours_max && job.hours_min !== job.hours_max
-                ? `${job.hours_min}–${job.hours_max} uur`
-                : `${job.hours_min || job.hours_max} uur`}
-            </div>
-          )}
-          <div className="text-xs text-gray-300 mt-2">
-            {daysAgo === 0 ? "Vandaag" : daysAgo === 1 ? "Gisteren" : `${daysAgo}d geleden`}
+          ) : <div />}
+
+          <div className="flex flex-col items-end gap-1.5">
+            {job.contract_type && (
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${CONTRACT_COLORS[job.contract_type] || "bg-gray-100 text-gray-600"}`}>
+                {CONTRACT_LABELS[job.contract_type] || job.contract_type}
+              </span>
+            )}
+            {job.is_premium && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-600">
+                ★ Uitgelicht
+              </span>
+            )}
+            {isGoodMatch && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 flex items-center gap-1">
+                ★ Goede match
+              </span>
+            )}
           </div>
         </div>
       </div>
