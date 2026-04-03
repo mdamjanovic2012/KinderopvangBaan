@@ -118,12 +118,14 @@ export default function MapPage() {
   const [total, setTotal] = useState(0);
   const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
   const [filters, setFilters] = useState({ job_type: "", radius: null });
   const [userLocation, setUserLocation] = useState(null);
   const [mobileView, setMobileView] = useState("map");
 
-  useEffect(() => {
+  const loadJobs = useCallback(() => {
     setLoading(true);
+    setApiError(false);
     const fetchJobs = userLocation && filters.radius
       ? api.nearbyJobs({ lat: userLocation.lat, lng: userLocation.lng, radius: filters.radius, job_type: filters.job_type || undefined })
       : api.jobMapPins({ job_type: filters.job_type || undefined });
@@ -134,9 +136,13 @@ export default function MapPage() {
         setTotal(data.total ?? (data.results || []).length);
         setBlurred(data.blurred ?? false);
       })
-      .catch(() => {})
+      .catch(() => setApiError(true))
       .finally(() => setLoading(false));
   }, [filters.job_type, filters.radius, userLocation]);
+
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
 
   const handleGeolocate = () => {
     navigator.geolocation.getCurrentPosition(
@@ -264,7 +270,18 @@ export default function MapPage() {
             </div>
           )}
           <div className="overflow-y-auto flex-1">
-            {jobs.length === 0 && !loading && (
+            {!loading && apiError && (
+              <div className="p-6 text-center text-gray-400 text-sm">
+                <p>Vacatures konden niet worden geladen.</p>
+                <button
+                  onClick={loadJobs}
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800"
+                >
+                  Opnieuw proberen
+                </button>
+              </div>
+            )}
+            {!loading && !apiError && jobs.length === 0 && (
               <div className="p-6 text-center text-gray-400 text-sm">Geen vacatures gevonden.</div>
             )}
             {jobs.map((job) => (

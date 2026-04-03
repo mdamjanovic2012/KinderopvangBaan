@@ -218,6 +218,7 @@ export default function JobsPage() {
   const [total, setTotal] = useState(0);
   const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState(false);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ ...EMPTY_FILTERS, radius: profileRadius ?? 15 });
   const [mode, setMode] = useState("all");
@@ -254,19 +255,21 @@ export default function JobsPage() {
 
   const loadAll = useCallback(() => {
     setLoading(true);
+    setApiError(false);
     api.jobs(buildParams())
       .then((data) => {
         setJobs(data.results || []);
         setTotal(data.total ?? (data.results || []).length);
         setBlurred(data.blurred ?? false);
       })
-      .catch(() => {})
+      .catch(() => setApiError(true))
       .finally(() => setLoading(false));
   }, [buildParams]);
 
   const loadNearby = useCallback(() => {
     if (!userLocation) return;
     setLoading(true);
+    setApiError(false);
     api.nearbyJobs({
       lat: userLocation.lat,
       lng: userLocation.lng,
@@ -278,7 +281,7 @@ export default function JobsPage() {
         setTotal(data.total ?? (data.results || []).length);
         setBlurred(data.blurred ?? false);
       })
-      .catch(() => {})
+      .catch(() => setApiError(true))
       .finally(() => setLoading(false));
   }, [userLocation, filters.radius, buildParams]);
 
@@ -503,7 +506,20 @@ export default function JobsPage() {
           </Link>
         </div>
 
-        {!loading && jobs.length === 0 && (
+        {!loading && apiError && (
+          <div className="text-center py-20 text-gray-400">
+            <div className="text-4xl mb-3">⚠️</div>
+            <p className="text-sm">Vacatures konden niet worden geladen.</p>
+            <button
+              onClick={() => mode === "all" ? loadAll() : loadNearby()}
+              className="mt-3 px-4 py-2 rounded-lg bg-blue-700 text-white text-sm font-medium hover:bg-blue-800"
+            >
+              Opnieuw proberen
+            </button>
+          </div>
+        )}
+
+        {!loading && !apiError && jobs.length === 0 && (
           <div className="text-center py-20 text-gray-400">
             <div className="text-4xl mb-3">🔍</div>
             <p className="text-sm">Geen vacatures gevonden.</p>
