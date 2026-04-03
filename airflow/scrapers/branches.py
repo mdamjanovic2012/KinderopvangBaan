@@ -1418,8 +1418,11 @@ def scrape_wasko_vestigingen() -> list[dict]:
                 continue
             soup = BeautifulSoup(resp.text, "html.parser")
 
-            # Address is in <h6>: "Locatie | street | postcode city | tel"
-            h6 = soup.find("h6", string=re.compile(r"Locatie", re.I))
+            # Address is in <h6>: "Locatie\nstreet\npostcode city\ntel" (with <br> separators)
+            h6 = next(
+                (t for t in soup.find_all("h6") if "locatie" in t.get_text().lower()),
+                None,
+            )
             if not h6:
                 continue
 
@@ -1571,6 +1574,221 @@ def scrape_gro_up_vestigingen() -> list[dict]:
 
 # ── Company configs ───────────────────────────────────────────────────────────
 
+def scrape_2samen_vestigingen() -> list[dict]:
+    """
+    2Samen Kinderopvang (2samen.nl) — /kinderopvang listing page.
+    Structure: <h3>Name</h3> <p>Street | Postcode</p> <p>City</p>
+    """
+    try:
+        resp = requests.get(
+            "https://www.2samen.nl/kinderopvang",
+            headers=SCRAPER_HEADERS, timeout=20,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning(f"[2samen-branches] listing mislukt: {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    locations = []
+    seen: set[str] = set()
+
+    for h3 in soup.find_all("h3"):
+        name = h3.get_text(strip=True)
+        if not name or name.lower() in {"soort opvang", "filter", "locatie", "resultaten"}:
+            continue
+
+        # Collect next siblings until next h3
+        p_texts = []
+        for sib in h3.find_next_siblings():
+            if sib.name == "h3":
+                break
+            text = sib.get_text(strip=True)
+            if text:
+                p_texts.append(text)
+
+        if len(p_texts) < 2:
+            continue
+
+        # p_texts[0] = "Street | Postcode" (postcode may be truncated)
+        # p_texts[1] = City
+        address_raw = p_texts[0]
+        city = p_texts[1]
+
+        parts = [p.strip() for p in address_raw.split("|")]
+        street = parts[0] if parts else ""
+        pc_match = POSTCODE_RE.search(address_raw)
+        postcode = pc_match.group(1).replace(" ", "") if pc_match else ""
+
+        if not city or name in seen:
+            continue
+        seen.add(name)
+        locations.append({
+            "name": name, "street": street,
+            "postcode": postcode, "city": city,
+        })
+
+    logger.info(f"[2samen-branches] {len(locations)} locations scraped")
+    return locations
+
+
+def scrape_mikz_vestigingen() -> list[dict]:
+    """
+    Mikz (mikz.nl) — embedded JS array App.locations on /locaties page.
+    Structure: App.locations = [{coordinates: {...}, locations: [{name, address, city, postcode}]}]
+    """
+    import json as _json
+    try:
+        resp = requests.get(
+            "https://www.mikz.nl/locaties",
+            headers=SCRAPER_HEADERS, timeout=20,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning(f"[mikz-branches] listing mislukt: {exc}")
+        return []
+
+    m = re.search(r"App\.locations\s*=\s*(\[.+?\]);\s*(?:App\.|$|//|\n)",
+                  resp.text, re.DOTALL)
+    if not m:
+        logger.warning("[mikz-branches] App.locations niet gevonden")
+        return []
+
+    try:
+        data = _json.loads(m.group(1))
+    except Exception as exc:
+        logger.warning(f"[mikz-branches] JSON parse mislukt: {exc}")
+        return []
+
+    locations = []
+    seen: set[str] = set()
+    for group in data:
+        coords = group.get("coordinates", {})
+        for loc in group.get("locations", []):
+            name = loc.get("name", "").strip()
+            street = loc.get("address", "").strip()
+            city = loc.get("city", "").strip()
+            postcode = loc.get("postcode", "").replace(" ", "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            entry: dict = {"name": name, "street": street, "postcode": postcode, "city": city}
+            if coords.get("longitude") and coords.get("latitude"):
+                entry["lon"] = coords["longitude"]
+                entry["lat"] = coords["latitude"]
+            locations.append(entry)
+
+    logger.info(f"[mikz-branches] {len(locations)} locations scraped")
+    return locations
+
+
+def scrape_vlietkinderen_vestigingen() -> list[dict]:
+    """
+    Vlietkinderen (vlietkinderen.nl) — /locaties page.
+    Addresses are in <span class="segment-post_code"> elements inside a
+    flex container. The location name is in a h3/h4 ancestor.
+    """
+    try:
+        resp = requests.get(
+            "https://www.vlietkinderen.nl/locaties",
+            headers=SCRAPER_HEADERS, timeout=20,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning(f"[vlietkinderen-branches] listing mislukt: {exc}")
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    locations = []
+    seen: set[str] = set()
+
+    for pc_span in soup.find_all("span", class_="segment-post_code"):
+        postcode_raw = pc_span.get_text(strip=True)
+        pc_match = POSTCODE_RE.search(postcode_raw)
+        if not pc_match:
+            continue
+        postcode = pc_match.group(1).replace(" ", "")
+
+        # Address container is the parent div with street parts and postcode
+        addr_div = pc_span.parent
+        addr_text = addr_div.get_text(separator=" ", strip=True)
+        m = POSTCODE_RE.search(addr_text)
+        city = addr_text[m.end():].strip() if m else ""
+        street_raw = addr_text[:m.start()].strip().rstrip(",").strip() if m else ""
+
+        # Name: walk up to find h3/h4
+        name = ""
+        node = addr_div
+        for _ in range(10):
+            node = node.parent
+            if node is None:
+                break
+            h = node.find("h3") or node.find("h4") or node.find("h2")
+            if h:
+                name = re.sub(r"^Welkom bij\s+", "", h.get_text(strip=True), flags=re.I)
+                break
+
+        if not name or not city or name in seen:
+            continue
+        seen.add(name)
+        locations.append({
+            "name": name, "street": street_raw,
+            "postcode": postcode, "city": city,
+        })
+
+    logger.info(f"[vlietkinderen-branches] {len(locations)} locations scraped")
+    return locations
+
+
+def scrape_un1ek_vestigingen() -> list[dict]:
+    """
+    Un1ek Kinderopvang (un1ek.nl) — operates in 3 municipalities.
+    API: /controllers/locaties/{tag} returns JSON with adres, postcode, plaatsnaam, cor_lat/cor_lng.
+    Tags: kinderopvang, peuteropvang (for all types).
+    """
+    import json as _json
+    base = "https://www.un1ek.nl/controllers/locaties"
+    tags = ["kinderopvang", "peuteropvang", "buitenschoolse-opvang", "hele-dagopvang"]
+    locations = []
+    seen: set[str] = set()
+
+    for tag in tags:
+        try:
+            resp = requests.get(
+                f"{base}/{tag}",
+                headers={**SCRAPER_HEADERS, "Accept": "application/json"},
+                timeout=15,
+            )
+            if resp.status_code != 200 or not resp.text.strip():
+                continue
+            items = _json.loads(resp.text)
+            if not isinstance(items, list):
+                items = [items]
+            for item in items:
+                name = (item.get("naam") or "").strip()
+                street = (item.get("adres") or "").strip()
+                postcode = (item.get("postcode") or "").replace(" ", "").strip()
+                city = (item.get("plaatsnaam") or "").strip()
+                lon = item.get("cor_lng") or item.get("lon")
+                lat = item.get("cor_lat") or item.get("lat")
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                entry: dict = {"name": name, "street": street, "postcode": postcode, "city": city}
+                if lon and lat:
+                    try:
+                        entry["lon"] = float(lon)
+                        entry["lat"] = float(lat)
+                    except (TypeError, ValueError):
+                        pass
+                locations.append(entry)
+        except Exception as exc:
+            logger.debug(f"[un1ek-branches] tag={tag} failed: {exc}")
+
+    logger.info(f"[un1ek-branches] {len(locations)} locations scraped")
+    return locations
+
+
 def _generic(slug: str, *sites: str) -> dict:
     """Helper: build a COMPANY_CONFIGS entry using _scrape_generic_vestigingen."""
     paths = ["/vestigingen", "/locaties", "/onze-locaties", "/kinderopvang/vestigingen",
@@ -1633,10 +1851,10 @@ COMPANY_CONFIGS = {
         "ska",
         "https://www.ska.nl",
     ),
-    "2samen": _generic(
-        "2samen",
-        "https://www.2samen.nl",
-    ),
+    "2samen": {"scraper": scrape_2samen_vestigingen},
+    "mikz":   {"scraper": scrape_mikz_vestigingen},
+    "vlietkinderen": {"scraper": scrape_vlietkinderen_vestigingen},
+    "un1ek":  {"scraper": scrape_un1ek_vestigingen},
     "wasko":       {"scraper": scrape_wasko_vestigingen},
     "wij-zijn-jong": {"scraper": scrape_wij_zijn_jong_vestigingen},
     "kanteel":     {"scraper": scrape_kanteel_vestigingen},

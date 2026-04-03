@@ -59,10 +59,33 @@ def _strip_html(html: str) -> str:
     return soup.get_text(separator="\n", strip=True)[:5000]
 
 
+_TT_NS = "https://teamtailor.com/locations"
+
+
+def _parse_tt_location(item: ET.Element) -> tuple[str, str, str, str]:
+    """
+    Parseer Teamtailor <tt:locations> uit een RSS <item>.
+    Geeft (location_name, street, postcode, city) terug.
+    Namespace: xmlns:tt="https://teamtailor.com/locations"
+    """
+    locations_el = item.find(f"{{{_TT_NS}}}locations")
+    if locations_el is None:
+        return "", "", "", ""
+    loc_el = locations_el.find(f"{{{_TT_NS}}}location")
+    if loc_el is None:
+        return "", "", "", ""
+    name    = (loc_el.findtext(f"{{{_TT_NS}}}name")    or "").strip()
+    street  = (loc_el.findtext(f"{{{_TT_NS}}}address") or "").strip()
+    postcode= (loc_el.findtext(f"{{{_TT_NS}}}zip")     or "").strip()
+    city    = (loc_el.findtext(f"{{{_TT_NS}}}city")    or "").strip()
+    return name, street, postcode, city
+
+
 def _parse_rss_items(xml_text: str) -> list[dict]:
     """
     Parseer RSS XML naar lijst van dicts met:
-    title, link, guid, description_html, categories
+    title, link, guid, description_html, categories,
+    location_name, street, postcode, city (uit <tt:locations> indien aanwezig)
     """
     try:
         root = ET.fromstring(xml_text)
@@ -81,13 +104,18 @@ def _parse_rss_items(xml_text: str) -> list[dict]:
         guid  = (item.findtext("guid") or link).strip()
         desc  = (item.findtext("description") or "").strip()
         cats  = [c.text.strip() for c in item.findall("category") if c.text]
+        loc_name, street, postcode, city = _parse_tt_location(item)
         if title and link:
             items.append({
-                "title": title,
-                "link": link,
-                "guid": guid,
+                "title":         title,
+                "link":          link,
+                "guid":          guid,
                 "description_html": desc,
-                "categories": cats,
+                "categories":    cats,
+                "location_name": loc_name,
+                "street":        street,
+                "postcode":      postcode,
+                "city":          city,
             })
     return items
 
@@ -171,9 +199,10 @@ def _extract_job_fields(item: dict) -> dict:
         "title":             item["title"],
         "short_description": desc_text[:300] if desc_text else "",
         "description":       desc_text,
-        "location_name":     "",
-        "city":              "",
-        "postcode":          "",
+        "location_name":     item.get("location_name", ""),
+        "city":              item.get("city", ""),
+        "postcode":          item.get("postcode", ""),
+        "street":            item.get("street", ""),
         "salary_min":        salary_min,
         "salary_max":        salary_max,
         "hours_min":         hours_min,
@@ -239,15 +268,17 @@ class TeamtailorRssScraper(BaseScraper):
 
         jobs = [_extract_job_fields(item) for item in items]
 
-        # Enrich each job with location from detail page
-        logger.info(f"[{self.company_slug}] Fetching detail pages voor locatie-informatie")
-        for job in jobs:
-            city, postcode, location_name = _fetch_detail_location(job["source_url"])
-            if location_name:
-                job["city"] = city
-                job["location_name"] = location_name
-                if postcode:
-                    job["postcode"] = postcode
-            time.sleep(0.3)
+        # Enrich each job with location from detail page (alleen als RSS geen locatie had)
+        needs_detail = [j for j in jobs if not j.get("city") and not j.get("postcode")]
+        if needs_detail:
+            logger.info(f"[{self.company_slug}] Fetching detail pages voor locatie ({len(needs_detail)} jobs)")
+            for job in needs_detail:
+                city, postcode, location_name = _fetch_detail_location(job["source_url"])
+                if location_name:
+                    job["city"] = city
+                    job["location_name"] = location_name
+                    if postcode:
+                        job["postcode"] = postcode
+                time.sleep(0.3)
 
         return jobs
