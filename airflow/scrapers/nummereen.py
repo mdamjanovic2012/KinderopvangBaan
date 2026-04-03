@@ -1,10 +1,9 @@
-"""Nummereen Kinderopvang — https://werkenbijnummereen.com"""
-from scrapers.wordpress_jobs import WordPressJobsScraper
+"""Nummereen Kinderopvang — werkenbijnummereen.com (WordPress REST API: /wp-json/wp/v2/vacature)"""
+from scrapers.wordpress_jobs import WordPressRestApiScraper
 
 
-class NummereenScraper(WordPressJobsScraper):
-    company_slug     = "nummereen"
-    company_name     = "Nummereen Kinderopvang"
-    listing_url      = "https://werkenbijnummereen.com/vacatures/"
-    website_url      = "https://werkenbijnummereen.com"
-    job_url_contains = "/vacatures/"
+class NummereenScraper(WordPressRestApiScraper):
+    company_slug      = "nummereen"
+    company_name      = "Nummereen Kinderopvang"
+    website_url       = "https://werkenbijnummereen.com"
+    wp_rest_post_type = "vacature"

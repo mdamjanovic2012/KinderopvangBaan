@@ -1,16 +1,9 @@
-"""
-Junis Kinderopvang scraper — werkenbijjunis.nl
-
-Platform: WordPress Jobs
-URL pattern: /vacature/
-"""
-
-from scrapers.wordpress_jobs import WordPressJobsScraper
+"""Junis Kinderopvang — werkenbijjunis.nl (WordPress REST API: /wp-json/wp/v2/vacatures)"""
+from scrapers.wordpress_jobs import WordPressRestApiScraper
 
 
-class JunisScraper(WordPressJobsScraper):
-    company_slug     = "junis"
-    company_name     = "Junis Kinderopvang"
-    listing_url      = "https://werkenbijjunis.nl/vacature/"
-    website_url      = "https://werkenbijjunis.nl"
-    job_url_contains = "/vacature/"
+class JunisScraper(WordPressRestApiScraper):
+    company_slug      = "junis"
+    company_name      = "Junis Kinderopvang"
+    website_url       = "https://werkenbijjunis.nl"
+    wp_rest_post_type = "vacatures"
