@@ -5,10 +5,10 @@ Tests voor custom-platform scrapers die NIET via WordPressJobsScraper lopen:
   - KinderstadScraper     (WP REST API custom post type)
   - CKCDrentheScraper     (GetNoticed/Playwright — listing via Playwright)
   - KindenCoLudensScraper (Next.js/Playwright — listing via Playwright)
-  - BerendBotjeScraper    (NXDOMAIN stub)
+  - BerendBotjeScraper    (WordPress scraper — werkenbijberendbotje.nl)
   - HaarlemmermeerScraper (TSF Angular stub)
   - TNestScraper          (NXDOMAIN stub)
-  - KinderopvangRoermondScraper (NXDOMAIN stub)
+  - KinderopvangRoermondScraper (WordPress scraper — kinderopvangroermond.nl)
 """
 
 import sys
@@ -552,8 +552,13 @@ class TestBerendBotjeScraper:
     def test_company_slug(self):
         assert BerendBotjeScraper.company_slug == "berend-botje"
 
-    def test_fetch_jobs_returns_empty(self):
-        assert BerendBotjeScraper().fetch_jobs() == []
+    def test_fetch_jobs_returns_list(self):
+        # BerendBotje is a real WordPress scraper (werkenbijberendbotje.nl)
+        jobs = BerendBotjeScraper().fetch_jobs()
+        assert isinstance(jobs, list)
+        if jobs:
+            assert "title" in jobs[0]
+            assert "source_url" in jobs[0]
 
     def test_fetch_company_returns_dict(self):
         company = BerendBotjeScraper().fetch_company()
@@ -591,8 +596,13 @@ class TestKinderopvangRoermondScraper:
     def test_company_slug(self):
         assert KinderopvangRoermondScraper.company_slug == "kinderopvang-roermond"
 
-    def test_fetch_jobs_returns_empty(self):
-        assert KinderopvangRoermondScraper().fetch_jobs() == []
+    def test_fetch_jobs_returns_list(self):
+        # KinderopvangRoermond is a real WordPress scraper (kinderopvangroermond.nl)
+        jobs = KinderopvangRoermondScraper().fetch_jobs()
+        assert isinstance(jobs, list)
+        if jobs:
+            assert "title" in jobs[0]
+            assert "source_url" in jobs[0]
 
     def test_fetch_company_returns_dict(self):
         company = KinderopvangRoermondScraper().fetch_company()
