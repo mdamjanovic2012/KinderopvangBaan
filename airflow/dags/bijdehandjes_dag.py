@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="bijdehandjes_scrape",
     description="Scrapes vacatures from BijdeHandjes",
-    schedule="15 8 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

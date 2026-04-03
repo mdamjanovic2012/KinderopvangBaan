@@ -14,7 +14,8 @@ def run_scraper():
 with DAG(
     dag_id="klein_alkmaar_scrape",
     description="Dagelijkse scrape van KleinAlkmaarScraper",
-    schedule="13 11 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

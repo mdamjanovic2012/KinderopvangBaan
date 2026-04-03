@@ -14,7 +14,8 @@ def run_scraper():
 with DAG(
     dag_id="de_eerste_stap_scrape",
     description="Dagelijkse scrape van DeEersteStapScraper",
-    schedule="14 9 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

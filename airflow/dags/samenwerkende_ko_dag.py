@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="samenwerkende_ko_scrape",
     description="Scrapt vacatures van Samenwerkende Kinderopvang",
-    schedule="0 7 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

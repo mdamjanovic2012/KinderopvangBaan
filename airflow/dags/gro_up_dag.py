@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="gro_up_scrape",
     description="Scrapt vacatures van Gro-up kinderopvang (Teamtailor RSS)",
-    schedule="35 6 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

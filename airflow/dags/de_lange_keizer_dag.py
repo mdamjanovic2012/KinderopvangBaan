@@ -14,7 +14,8 @@ def run_scraper():
 with DAG(
     dag_id="de_lange_keizer_scrape",
     description="Dagelijkse scrape van DeLangeKeizerScraper",
-    schedule="21 9 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

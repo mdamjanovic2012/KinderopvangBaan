@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="kinderdam_scrape",
     description="Scrapt vacatures van Kinderdam (ikwerkaandetoekomst.nl)",
-    schedule="0 6 * * *",        # elke dag om 06:00
+    schedule=None,
+    is_paused_upon_creation=True,        # elke dag om 06:00
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

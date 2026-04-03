@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="ko_walcheren_scrape",
     description="Scrapes vacatures from Kinderopvang Walcheren",
-    schedule="40 8 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

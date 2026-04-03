@@ -14,7 +14,8 @@ def run_scraper():
 with DAG(
     dag_id="okidoki_scrape",
     description="Dagelijkse scrape van OkidokiScraper",
-    schedule="37 12 * * *",
+    schedule=None,
+    is_paused_upon_creation=True,
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={

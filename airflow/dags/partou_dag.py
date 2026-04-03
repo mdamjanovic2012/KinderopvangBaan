@@ -19,7 +19,8 @@ def run_scraper():
 with DAG(
     dag_id="partou_scrape",
     description="Scrapt vacatures van Partou (werkenbijpartou.nl)",
-    schedule="30 6 * * *",       # elke dag om 06:30 (30min na Kinderdam)
+    schedule=None,
+    is_paused_upon_creation=True,       # elke dag om 06:30 (30min na Kinderdam)
     start_date=datetime(2026, 1, 1),
     catchup=False,
     default_args={
