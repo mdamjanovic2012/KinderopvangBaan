@@ -104,6 +104,23 @@ SCRAPERS = [
     ("monkey_donky",    "scrapers.monkey_donky",        "MonkeyDonkyScraper"),
     # ── Nieuwe scrapers (Recruitee API) ───────────────────────────────────────
     ("rastergroep",     "scrapers.rastergroep",         "RastergroepScraper"),
+    # ── Nieuwe scrapers (custom platforms) ───────────────────────────────────
+    ("atalenta",        "scrapers.atalenta",            "AtalentaScraper"),
+    ("avem",            "scrapers.avem",                "AvemScraper"),
+    ("basker",          "scrapers.basker",              "BaskerScraper"),
+    ("berend_botje",    "scrapers.berend_botje",        "BerendBotjeScraper"),
+    ("blosse",          "scrapers.blosse",              "BlosseScraper"),
+    ("ckc_drenthe",     "scrapers.ckc_drenthe",         "CKCDrentheScraper"),
+    ("haarlemmermeer",  "scrapers.haarlemmermeer",      "HaarlemmermeerScraper"),
+    ("kindencoludens",  "scrapers.kindencoludens",      "KindenCoLudensScraper"),
+    ("kinderopvang_roermond", "scrapers.kinderopvang_roermond", "KinderopvangRoermondScraper"),
+    ("kinderstad",      "scrapers.kinderstad",          "KinderstadScraper"),
+    ("mikz",            "scrapers.mikz",                "MikzScraper"),
+    ("skippypepijn",    "scrapers.skippypepijn",        "SkippyPePijNScraper"),
+    ("sportstuif",      "scrapers.sportstuif",          "SportstuifScraper"),
+    ("t_nest",          "scrapers.t_nest",              "TNestScraper"),
+    ("un1ek",           "scrapers.un1ek",               "Un1ekScraper"),
+    ("yes_kinderopvang","scrapers.yes_kinderopvang",    "YesKinderopvangScraper"),
 ]
 
 BATCH_SIZE = 5

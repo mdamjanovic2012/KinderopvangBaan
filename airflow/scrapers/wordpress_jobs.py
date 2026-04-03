@@ -109,10 +109,15 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
         locations = [locations]
     if locations:
         addr = locations[0].get("address", {})
-        locality = addr.get("addressLocality", "")
-        city = (locality if isinstance(locality, str) else locality.get("name", "") if isinstance(locality, dict) else "").strip()
-        postcode = addr.get("postalCode", "").replace(" ", "").strip()
-        street = addr.get("streetAddress", "").strip()
+        if isinstance(addr, str):
+            # Some sites put a plain address string instead of a structured object
+            city = addr.strip()
+            postcode = street = ""
+        else:
+            locality = addr.get("addressLocality", "") if isinstance(addr, dict) else ""
+            city = (locality if isinstance(locality, str) else locality.get("name", "") if isinstance(locality, dict) else "").strip()
+            postcode = (addr.get("postalCode") or "").replace(" ", "").strip() if isinstance(addr, dict) else ""
+            street = (addr.get("streetAddress") or "").strip() if isinstance(addr, dict) else ""
 
     # Salaris
     salary_min = salary_max = None
@@ -124,7 +129,7 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
             salary_max = _salary_val(val.get("maxValue"))
 
     # Contract type
-    emp_types = jsonld.get("employmentType", [])
+    emp_types = jsonld.get("employmentType") or []
     if isinstance(emp_types, str):
         emp_types = [emp_types]
     contract_type = ""

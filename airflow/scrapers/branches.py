@@ -50,7 +50,9 @@ Supported companies:
 
 import logging
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
@@ -1532,39 +1534,36 @@ def scrape_gro_up_vestigingen() -> list[dict]:
     ]
     logger.info(f"[gro-up-branches] {len(loc_urls)} location URLs from sitemap")
 
-    locations = []
-    seen: set[str] = set()
-
-    for url in loc_urls:
+    def _fetch_loc(url):
         try:
             resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=15)
             if resp.status_code != 200:
-                continue
+                return None
             soup = BeautifulSoup(resp.text, "html.parser")
-
             h1 = soup.find("h1")
             name = h1.get_text(strip=True) if h1 else ""
-
             addr_el = soup.select_one(".contact-block__address")
             if not addr_el or not name:
-                continue
-
+                return None
             text = addr_el.get_text(separator="\n")
             street, postcode, city = _parse_address_block(text)
             if not postcode and not city:
-                continue
-
-            key = f"{name}|{postcode or city}"
-            if key in seen:
-                continue
-            seen.add(key)
-            locations.append({
-                "name": name, "street": street,
-                "postcode": postcode, "city": city,
-            })
-            time.sleep(0.2)
+                return None
+            return {"name": name, "street": street, "postcode": postcode, "city": city}
         except Exception as exc:
             logger.debug(f"[gro-up-branches] {url} failed: {exc}")
+            return None
+
+    locations = []
+    seen: set[str] = set()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for loc in pool.map(_fetch_loc, loc_urls):
+            if loc is None:
+                continue
+            key = f"{loc['name']}|{loc.get('postcode') or loc.get('city')}"
+            if key not in seen:
+                seen.add(key)
+                locations.append(loc)
 
     logger.info(f"[gro-up-branches] {len(locations)} locations scraped")
     return locations
@@ -1697,50 +1696,124 @@ def _locations_from_jobs(cur, company_slug: str) -> list[dict]:
     return locations
 
 
+def _parallel_geocode(locations_needing_geo: list[tuple]) -> None:
+    """
+    Geocode a list of (loc_dict, query_string) pairs in parallel.
+
+    Updates loc_dict in-place with lon/lat/city/postcode from PDOK.
+    Uses a semaphore to stay polite (max 5 concurrent PDOK requests).
+    """
+    if not locations_needing_geo:
+        return
+
+    _sem = threading.Semaphore(5)
+
+    def _geo_one(item):
+        loc, query = item
+        with _sem:
+            result = _geocode_via_pdok(query)
+        if result:
+            loc["lon"] = result["lon"]
+            loc["lat"] = result["lat"]
+            if not loc.get("city"):
+                loc["city"] = result.get("city", "")
+            if not loc.get("postcode"):
+                loc["postcode"] = result.get("postcode", "")
+
+    logger.info(f"[branches] Geocoding {len(locations_needing_geo)} locations in parallel...")
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        list(pool.map(_geo_one, locations_needing_geo))
+
+
 def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
     """
     Scrape branches for the given companies (or all if None).
 
-    For each company:
-      1. Run the configured scraper (custom or generic HTML)
-      2. If it returns 0 locations, fall back to distinct location_names
-         from already-scraped jobs in the DB (geocoded via PDOK)
+    Geoptimaliseerde pipeline:
+      1. Alle company scrapers parallel uitvoeren (ThreadPoolExecutor, 8 workers)
+      2. DB-fallback voor bedrijven zonder resultaat
+      3. PDOK geocoding parallel uitvoeren (5 workers, semaphore)
+      4. Alle locaties batch-upserten naar de DB
+      5. Bestaande jobs verrijken met vestiging-adressen
 
-    Geocodes each branch and stores it in the jobs_vestiging table.
-    Returns per-company statistics.
+    Geeft per-bedrijf statistieken terug.
     """
     if company_slugs is None:
         company_slugs = list(COMPANY_CONFIGS.keys())
 
+    # ── Stap 1: Scrapers parallel uitvoeren ───────────────────────────────────
+
+    # Valideer slugs vóór parallel uitvoering
+    known_slugs = [s for s in company_slugs if COMPANY_CONFIGS.get(s)]
+    for slug in company_slugs:
+        if slug not in COMPANY_CONFIGS:
+            logger.warning(f"[branches] No config for '{slug}'")
+
+    def _run_scraper(slug):
+        try:
+            return slug, COMPANY_CONFIGS[slug]["scraper"](), None
+        except Exception as exc:
+            logger.error(f"[branches] {slug} scraper error: {exc}")
+            return slug, [], str(exc)
+
+    logger.info(f"[branches] Scraping {len(known_slugs)} companies in parallel...")
+    scraper_results: dict[str, tuple] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for slug, locs, err in pool.map(_run_scraper, known_slugs):
+            scraper_results[slug] = (locs, err)
+
+    # ── Stap 2–4: DB-fallback, geocoding, upserts ─────────────────────────────
+
     conn = get_connection()
-    stats = {}
+    stats: dict = {}
 
     try:
         with conn:
             cur = conn.cursor()
 
-            for slug in company_slugs:
-                config = COMPANY_CONFIGS.get(slug)
-                if not config:
-                    logger.warning(f"[branches] No config for '{slug}'")
-                    continue
+            # DB-fallback voor bedrijven zonder scraped locations
+            fallback_flags: dict[str, bool] = {}
+            for slug in known_slugs:
+                locs, err = scraper_results[slug]
+                if err and not locs:
+                    stats[slug] = {"error": err, "locations": 0, "fallback": False}
+                if not locs:
+                    fb = _locations_from_jobs(cur, slug)
+                    scraper_results[slug] = (fb, err)
+                    fallback_flags[slug] = bool(fb)
+                else:
+                    fallback_flags[slug] = False
 
-                logger.info(f"[branches] Scraping {slug}...")
-                try:
-                    locations = config["scraper"]()
-                except Exception as exc:
-                    logger.error(f"[branches] {slug} scraper error: {exc}")
-                    locations = []
-                    stats[slug] = {"error": str(exc), "locations": 0, "fallback": False}
+            # Verzamel locaties die PDOK geocoding nodig hebben
+            to_geocode: list[tuple] = []
+            for slug in known_slugs:
+                locs, _ = scraper_results[slug]
+                for loc in locs:
+                    if loc.get("lon") is None:
+                        street = loc.get("street", "")
+                        postcode = loc.get("postcode", "")
+                        city = loc.get("city", "")
+                        name = loc.get("name", "")
+                        if street and postcode and city:
+                            query = f"{street}, {postcode} {city}"
+                        elif postcode and city:
+                            query = f"{postcode} {city}"
+                        elif city:
+                            query = city
+                        else:
+                            query = name
+                        if query:
+                            to_geocode.append((loc, query))
 
-                # Fallback: pull locations from job data when scraper found nothing
-                fallback_used = False
-                if not locations:
-                    locations = _locations_from_jobs(cur, slug)
-                    fallback_used = bool(locations)
+            _parallel_geocode(to_geocode)
+
+            # Upserts naar DB
+            for slug in known_slugs:
+                locs, err = scraper_results[slug]
+                fallback_used = fallback_flags.get(slug, False)
 
                 inserted = 0
-                for loc in locations:
+                for loc in locs:
                     cur.execute("SAVEPOINT sp_upsert")
                     try:
                         upsert_vestiging(
@@ -1755,8 +1828,6 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                         )
                         cur.execute("RELEASE SAVEPOINT sp_upsert")
                         inserted += 1
-                        if loc.get("lon") is None:
-                            time.sleep(0.2)  # PDOK rate limiting
                     except Exception as exc:
                         cur.execute("ROLLBACK TO SAVEPOINT sp_upsert")
                         logger.warning(f"[branches] Upsert failed for {loc.get('name')}: {exc}")
@@ -1771,7 +1842,7 @@ def run_vestigingen_scrape(company_slugs: list[str] | None = None) -> dict:
                     + (" (from job data)" if fallback_used else "")
                 )
 
-        # Na kraju: verrijk bestaande jobs zonder straat/postcode
+        # ── Stap 5: Verrijk bestaande jobs ────────────────────────────────────
         enriched = _enrich_existing_jobs(conn)
         logger.info(f"[branches] {enriched} bestaande jobs verrijkt met vestiging-adres")
         stats["_enriched_jobs"] = enriched
@@ -1787,6 +1858,11 @@ def _enrich_existing_jobs(conn) -> int:
     Update bestaande jobs zonder straat/postcode op basis van vestiging-data.
     Wordt aangeroepen na run_vestigingen_scrape zodat verse branch-data meteen
     doorvloeit naar de bijbehorende vacatures.
+
+    Optmalisaties t.o.v. de vorige versie:
+      - Één cursor hergebruikt voor alle match_vestiging queries
+      - Één cursor hergebruikt voor alle UPDATE queries
+      - Geen extra `with conn.cursor()` overhead per job
     """
     with conn.cursor() as cur:
         cur.execute("""
@@ -1798,24 +1874,22 @@ def _enrich_existing_jobs(conn) -> int:
         """)
         jobs = cur.fetchall()
 
-    updates: list[tuple] = []
-    for job_id, company_slug, loc_name, city, title in jobs:
-        with conn.cursor() as cur:
+        updates: list[tuple] = []
+        for job_id, company_slug, loc_name, city, title in jobs:
             v = match_vestiging(cur, company_slug, loc_name or "", city or "", title or "")
-        if v and (v.get("street") or v.get("postcode")):
-            updates.append((
-                v.get("street", ""),
-                v.get("postcode", ""),
-                v.get("city", "") or city or "",
-                v.get("lon"),
-                v.get("lat"),
-                job_id,
-            ))
+            if v and (v.get("street") or v.get("postcode")):
+                updates.append((
+                    v.get("street", ""),
+                    v.get("postcode", ""),
+                    v.get("city", "") or city or "",
+                    v.get("lon"),
+                    v.get("lat"),
+                    job_id,
+                ))
 
-    if not updates:
-        return 0
+        if not updates:
+            return 0
 
-    with conn.cursor() as cur:
         for street, postcode, city, lon, lat, job_id in updates:
             cur.execute("""
                 UPDATE jobs_job SET
@@ -1829,5 +1903,6 @@ def _enrich_existing_jobs(conn) -> int:
                 WHERE id = %s
             """, (street, street, postcode, postcode, city, city,
                   lon, lon, lat, job_id))
+
     conn.commit()
     return len(updates)
