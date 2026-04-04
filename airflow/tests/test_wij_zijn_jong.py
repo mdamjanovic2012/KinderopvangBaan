@@ -30,11 +30,15 @@ LISTING_EMPTY = """<html><body>
 </body></html>"""
 
 DETAIL_HTML = """<html><body>
-<h1>Pedagogisch Medewerker BSO Eindhoven</h1>
-<main>
+<h1 class="twz-hero__title">Pedagogisch Medewerker BSO Eindhoven</h1>
+<ul>
+  <li class="location-place">Eindhoven</li>
+  <li class="hours">24-32 uur</li>
+</ul>
+<div class="content">
   <p>We zoeken een PM BSO voor 24-32 uur per week in Eindhoven.</p>
   <p>€ 2.641 - € 3.630 per maand</p>
-</main>
+</div>
 </body></html>"""
 
 

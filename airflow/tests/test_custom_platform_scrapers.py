@@ -256,15 +256,17 @@ class TestUn1ekScraper:
         assert company["name"] == "Un1ek Kinderopvang"
         assert company["description"] == "Un1ek kinderopvang"
 
-    def test_fetch_jobs_jsonld_path(self):
-        """_scrape_job_page gebruikt JSON-LD als primaire bron."""
+    def test_fetch_jobs_og_title_path(self):
+        """_scrape_job_page gebruikt og:title als primaire titelbron."""
         scraper = Un1ekScraper()
         listing_r = MagicMock()
         listing_r.text = LISTING_HTML_UN1EK
         listing_r.raise_for_status = MagicMock()
-        detail_html = """<html><body>
-<script type="application/ld+json">{"@type": "JobPosting", "title": "PM JSON-LD",
-"description": "Test", "identifier": {"value": "279"}}</script>
+        detail_html = """<html><head>
+<meta property="og:title" content="PM via OG Title - UN1EK"/>
+</head><body>
+<h1>Werken</h1><h1>bij UN1EK</h1><h1>PM via OG Title</h1>
+<main><p>Wij zoeken een PM voor 24-32 uur per week.</p></main>
 </body></html>"""
         detail_r = MagicMock()
         detail_r.text = detail_html
@@ -272,7 +274,7 @@ class TestUn1ekScraper:
         with patch("scrapers.un1ek.requests.get",
                    side_effect=[listing_r, detail_r, detail_r]):
             jobs = scraper.fetch_jobs()
-        assert any(j["title"] == "PM JSON-LD" for j in jobs)
+        assert any(j["title"] == "PM via OG Title" for j in jobs)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

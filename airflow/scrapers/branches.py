@@ -1789,6 +1789,93 @@ def scrape_un1ek_vestigingen() -> list[dict]:
     return locations
 
 
+def scrape_bzzzonder_vestigingen() -> list[dict]:
+    """
+    Bzzzonder Kinderopvang (bzzzonder.nl) — locations in Amersfoort, Nijkerk, Ede, Voorthuizen.
+    Scrapes /plekken/ for all location URLs, then each location page for address.
+    Address format: 'Straatnaam 12, 1234AB Stad' in 'Adres gegevens' section.
+    """
+    import re as _re
+    # street+number, postcode, city — city stops at @ (email), digit, or extra whitespace
+    ADDR_RE = _re.compile(
+        r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]+?\s+\d{1,4}[a-zA-Z]{0,2}),?\s*"
+        r"(\d{4}\s*[A-Z]{2})[,\s]+"
+        r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,30}?)(?=[@\d]|\s{2,}|\s+en\s|$)"
+    )
+    plekken_url = "https://www.bzzzonder.nl/plekken/"
+    locations = []
+
+    try:
+        resp = requests.get(plekken_url, headers=SCRAPER_HEADERS, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "lxml")
+    except Exception as exc:
+        logger.warning(f"[bzzzonder-branches] Plekken pagina mislukt: {exc}")
+        return []
+
+    # Collect unique location page URLs
+    loc_urls: list[str] = []
+    seen: set[str] = set()
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if (
+            "/plekken/" in href
+            and href != plekken_url
+            and href not in seen
+            and a.get_text(strip=True)
+        ):
+            seen.add(href)
+            loc_urls.append(href)
+
+    logger.info(f"[bzzzonder-branches] {len(loc_urls)} locatie-pagina's gevonden")
+
+    for url in loc_urls:
+        try:
+            r = requests.get(url, headers=SCRAPER_HEADERS, timeout=15)
+            r.raise_for_status()
+            s = BeautifulSoup(r.text, "lxml")
+
+            # Location name from H1
+            h1 = s.find("h1")
+            name = h1.get_text(strip=True) if h1 else url.rstrip("/").split("/")[-1]
+
+            # Address from map-marker icon in 'Adres gegevens' section
+            street = postcode = city = ""
+            marker = s.select_one(".fa-map-marker-alt, .fa-map-marker")
+            if marker:
+                li = marker.find_parent("li")
+                if li:
+                    content = li.select_one(".fusion-li-item-content") or li
+                    addr_text = content.get_text(strip=True)
+                    m = ADDR_RE.search(addr_text)
+                    if m:
+                        street   = m.group(1).strip()
+                        postcode = m.group(2).replace(" ", "").strip()
+                        city     = m.group(3).strip()
+
+            if not postcode:
+                # Fallback: postcode from page text
+                page_text = s.get_text(separator=" ")
+                pc_m = _re.search(r"(\d{4}\s*[A-Z]{2})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{2,20}(?:\s+[A-Z][A-Za-zÀ-ÿ\-]+)*)(?=[@\d\n\s])", page_text)
+                if pc_m:
+                    postcode = pc_m.group(1).replace(" ", "")
+                    city     = pc_m.group(2).strip()
+
+            if name:
+                locations.append({
+                    "name":     name,
+                    "street":   street,
+                    "postcode": postcode,
+                    "city":     city,
+                })
+                logger.debug(f"[bzzzonder-branches] {name} — {street}, {postcode} {city}")
+        except Exception as exc:
+            logger.warning(f"[bzzzonder-branches] Locatie mislukt {url}: {exc}")
+
+    logger.info(f"[bzzzonder-branches] {len(locations)} vestigingen gevonden")
+    return locations
+
+
 def _generic(slug: str, *sites: str) -> dict:
     """Helper: build a COMPANY_CONFIGS entry using _scrape_generic_vestigingen."""
     paths = ["/vestigingen", "/locaties", "/onze-locaties", "/kinderopvang/vestigingen",
@@ -1859,6 +1946,7 @@ COMPANY_CONFIGS = {
     "wij-zijn-jong": {"scraper": scrape_wij_zijn_jong_vestigingen},
     "kanteel":     {"scraper": scrape_kanteel_vestigingen},
     "ko-walcheren": {"scraper": scrape_ko_walcheren_vestigingen},
+    "bzzzonder":    {"scraper": scrape_bzzzonder_vestigingen},
     "samenwerkende-ko": _generic(
         "samenwerkende-ko",
         "https://www.samenwerkendekinderopvang.nl",

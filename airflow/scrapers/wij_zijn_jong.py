@@ -12,8 +12,17 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-from scrapers.wordpress_jobs import WordPressJobsScraper, get_job_links_from_listing
+from scrapers.wordpress_jobs import WordPressJobsScraper, get_job_links_from_listing, _parse_hours
 from scrapers.base import SCRAPER_HEADERS
+
+SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+
+
+def _parse_euros(raw: str) -> float | None:
+    try:
+        return float(raw.replace(".", "").replace(",", ".").strip())
+    except ValueError:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -59,3 +68,54 @@ class WijZijnJONGScraper(WordPressJobsScraper):
                 break
 
         return list(all_urls)
+
+    def _scrape_job_page(self, url: str) -> dict | None:
+        try:
+            resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning(f"[wij-zijn-jong] Detailpagina mislukt {url}: {exc}")
+            return None
+
+        soup = BeautifulSoup(resp.text, "lxml")
+
+        h1 = soup.select_one("h1.twz-hero__title") or soup.find("h1")
+        title = h1.get_text(strip=True) if h1 else ""
+        if not title:
+            return None
+
+        city_el = soup.select_one("li.location-place")
+        city = city_el.get_text(strip=True) if city_el else ""
+
+        hours_el = soup.select_one("li.hours")
+        hours_text = hours_el.get_text(strip=True) if hours_el else ""
+        hours_min, hours_max = _parse_hours(hours_text) if hours_text else (None, None)
+
+        content = soup.select_one("div.content")
+        desc = content.get_text(separator="\n", strip=True)[:5000] if content else ""
+
+        salary_min = salary_max = None
+        sm = SALARY_RE.search(desc)
+        if sm:
+            salary_min = _parse_euros(sm.group(1))
+            salary_max = _parse_euros(sm.group(2))
+
+        external_id = url.rstrip("/").split("/")[-1]
+
+        return {
+            "source_url":        url,
+            "external_id":       external_id,
+            "title":             title,
+            "short_description": desc[:300],
+            "description":       desc,
+            "location_name":     city,
+            "city":              city,
+            "salary_min":        salary_min,
+            "salary_max":        salary_max,
+            "hours_min":         hours_min,
+            "hours_max":         hours_max,
+            "age_min":           None,
+            "age_max":           None,
+            "contract_type":     "",
+            "job_type":          "",
+        }

@@ -6,8 +6,8 @@ Listing URL: https://www.un1ek.nl/vacatures
 Job URLs:    https://www.un1ek.nl/{numeric_id}  (bijv. /279, /153)
 
 Aanpak:
-  1. Fetch listing page, zoek alle hrefs die overeenkomen met r'/\d+$'
-  2. Per detailpagina: probeer JSON-LD JobPosting, fallback naar HTML h1 + main/article
+  1. Fetch listing page, zoek alle hrefs die overeenkomen met patroon /digits
+  2. Per detailpagina: og:title als primaire titelbron, USP-blok voor uren en locatie
   3. Uren worden geëxtraheerd via _parse_hours uit wordpress_jobs
 """
 
@@ -19,12 +19,24 @@ import requests
 from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper, SCRAPER_HEADERS
-from scrapers.wordpress_jobs import (
-    _parse_hours,
-    _strip_html,
-    extract_job_posting_jsonld,
-    parse_job_from_jsonld,
-)
+from scrapers.wordpress_jobs import _parse_hours
+
+_FTE_RE = re.compile(r"([\d,\.]+)\s*[-–]\s*([\d,\.]+)\s*fte", re.I)
+_FTE_SINGLE_RE = re.compile(r"([\d,\.]+)\s*fte", re.I)
+
+
+def _parse_fte_as_hours(text: str) -> tuple[int | None, int | None]:
+    """Convert FTE to hours (1 fte = 40 uur)."""
+    m = _FTE_RE.search(text)
+    if m:
+        lo = round(float(m.group(1).replace(",", ".")) * 40)
+        hi = round(float(m.group(2).replace(",", ".")) * 40)
+        return lo, hi
+    m = _FTE_SINGLE_RE.search(text)
+    if m:
+        val = round(float(m.group(1).replace(",", ".")) * 40)
+        return val, val
+    return None, None
 
 logger = logging.getLogger(__name__)
 
@@ -114,28 +126,52 @@ class Un1ekScraper(BaseScraper):
 
         soup = BeautifulSoup(resp.text, "lxml")
 
-        # Probeer JSON-LD eerst
-        jsonld = extract_job_posting_jsonld(soup)
-        if jsonld and jsonld.get("title"):
-            return parse_job_from_jsonld(url, jsonld)
-
-        # HTML fallback: titel uit h1, beschrijving uit main of article
-        h1 = soup.find("h1")
-        title = h1.get_text(strip=True) if h1 else ""
+        # Title: use og:title (clean), strip " - UN1EK" suffix
+        og = soup.find("meta", property="og:title")
+        title = og["content"].strip() if og and og.get("content") else ""
+        if not title:
+            # Fallback: 3rd h1 (first two are the site header "Werken bij UN1EK")
+            h1s = soup.find_all("h1")
+            title = h1s[2].get_text(strip=True) if len(h1s) >= 3 else (
+                h1s[-1].get_text(strip=True) if h1s else ""
+            )
+        # Strip " - UN1EK" suffix from og:title
+        title = re.sub(r"\s*[-–]\s*UN1EK\s*$", "", title, flags=re.I)
         if not title:
             logger.debug(f"[{self.company_slug}] Geen titel gevonden op {url}, overgeslagen")
             return None
 
-        main = (
-            soup.select_one("main")
-            or soup.select_one("article")
-            or soup.select_one(".entry-content")
-            or soup.select_one(".content")
-        )
-        desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
-        hours_min, hours_max = _parse_hours(desc)
+        # USPs: [0] startdatum, [1] uren, [2] locatie
+        usp_divs = soup.select(".vacature-single__usps > div .content")
+        hours_min = hours_max = None
+        location_name = ""
+        if len(usp_divs) >= 2:
+            usp_hours_text = usp_divs[1].get_text(strip=True)
+            hours_min, hours_max = _parse_hours(usp_hours_text)
+            if hours_min is None:
+                hours_min, hours_max = _parse_fte_as_hours(usp_hours_text)
+        if len(usp_divs) >= 3:
+            location_name = usp_divs[2].get_text(strip=True)
 
-        # external_id = numeriek ID uit URL
+        # Description: intro + content blocks
+        desc_parts = []
+        for sel in [".vacature-single__intro", ".vacature-single__block",
+                    ".vacature-single__conditions"]:
+            for el in soup.select(sel):
+                text = el.get_text(separator="\n", strip=True)
+                if text:
+                    desc_parts.append(text)
+        desc = "\n\n".join(desc_parts)[:5000]
+        if not desc:
+            fallback = (
+                soup.select_one("section.vacature-single")
+                or soup.select_one("main")
+                or soup.select_one("article")
+            )
+            desc = fallback.get_text(separator="\n", strip=True)[:5000] if fallback else ""
+        if hours_min is None:
+            hours_min, hours_max = _parse_hours(desc)
+
         external_id = url.rstrip("/").split("/")[-1]
 
         return {
@@ -144,9 +180,8 @@ class Un1ekScraper(BaseScraper):
             "title":             title,
             "short_description": desc[:300],
             "description":       desc,
-            "location_name":     "",
+            "location_name":     location_name,
             "city":              "",
-            "postcode":          "",
             "salary_min":        None,
             "salary_max":        None,
             "hours_min":         hours_min,

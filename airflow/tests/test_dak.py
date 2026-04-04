@@ -21,12 +21,13 @@ LISTING_HTML = """<html><body>
 
 DETAIL_HTML = """<html><body>
 <h1>Pedagogisch medewerker Sport BSO/TSO</h1>
-<main>
-  <p>Dak Dunkler - BSO</p>
-  <p>24 uur</p>
-  <p>€ 2.641 - € 3.630 o.b.v. 36 uur</p>
-  <p>Ben jij een enthousiaste pedagogisch medewerker die kinderen een geweldige middag wil bezorgen?</p>
-</main>
+<span class="opvangsvorm">Dak Dunkler - BSO</span>
+<div class="location-city">Den Haag</div>
+<div class="location-street">Teststraat 1</div>
+<span class="hours">24 uur</span>
+<span class="salary">€ 2.641 - € 3.630 o.b.v. 36 uur</span>
+<div class="header-text">Ben jij een enthousiaste pedagogisch medewerker die kinderen een geweldige middag wil bezorgen?</div>
+<div class="content-wrap">Meer informatie over de functie.</div>
 </body></html>"""
 
 
