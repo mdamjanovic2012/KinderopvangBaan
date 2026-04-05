@@ -50,7 +50,7 @@ describe("api.jobMapPins", () => {
 
   it("includes job_type param when provided", async () => {
     mockFetch({ total: 5, blurred: false, results: [] });
-    await api.jobMapPins("pm3");
+    await api.jobMapPins({ job_type: "pm3" });
     const url = fetch.mock.calls[0][0];
     expect(url).toContain("job_type=pm3");
   });
@@ -95,9 +95,9 @@ describe("api.nearbyJobs", () => {
     expect(url).toContain("radius=15");
   });
 
-  it("converts type to job_type param", async () => {
+  it("passes job_type param", async () => {
     mockFetch([]);
-    await api.nearbyJobs({ lat: 51.92, lng: 4.48, type: "bso" });
+    await api.nearbyJobs({ lat: 51.92, lng: 4.48, job_type: "bso" });
     const url = fetch.mock.calls[0][0];
     expect(url).toContain("job_type=bso");
   });

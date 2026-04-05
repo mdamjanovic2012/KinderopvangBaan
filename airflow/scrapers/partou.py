@@ -7,12 +7,15 @@ Vacatures worden opgehaald via de Contentful GraphQL API.
 Geen Playwright nodig: directe HTTP-calls naar de Contentful API.
 """
 
+import json
 import logging
 import re
 
 import requests
+from bs4 import BeautifulSoup
 
 from scrapers.base import BaseScraper, SCRAPER_HEADERS
+from scrapers.branches import POSTCODE_RE
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,11 @@ CONTENTFUL_QUERY = """
       roleTitle
       role
       city
+      address
+      postalCode
+      latitude
+      longitude
+      oeNumber
       slug
       minHours
       maxHours
@@ -50,8 +58,82 @@ CONTENTFUL_QUERY = """
 }
 """
 
+# Contentful query for unique facility addresses (used by branch scraper)
+CONTENTFUL_LOCATIONS_QUERY = """
+{
+  vacancyCollection(limit: 1000, skip: 0) {
+    items {
+      oeNumber
+      address
+      postalCode
+      city
+      latitude
+      longitude
+    }
+  }
+}
+"""
+
 SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
 HOURS_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
+
+# Facility type prefixes that appear between "|" and the actual location name
+# in Partou job titles, e.g. "Pedagogisch Medewerker | BSO Bolstraat Amsterdam"
+_FACILITY_PREFIXES = [
+    "KDV VE en BSO", "KDV en BSO", "KDV VE", "Sport BSO", "Flex VE",
+    "BBL-opleiding", "EVC Traject", "POV VE", "Flexpool Regio",
+    "Verticale groep", "Babygroep", "Peutergroep", "Flexpool",
+    "BBL", "EVC", "KDV", "BSO", "POV", "VE", "IKC",
+]
+_PARTOU_TYPE_PREFIX_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(p) for p in _FACILITY_PREFIXES) + r")\s+",
+    re.IGNORECASE,
+)
+
+
+def _extract_location_from_title(title: str, city: str) -> str:
+    """
+    Extract a precise location string from a Partou job title.
+
+    Partou titles often encode the specific branch location:
+      "Pedagogisch Medewerker | BSO Bolstraat Utrecht" + city="Utrecht"
+      → "Bolstraat, Utrecht"
+      "Pedagogisch Medewerker | Babygroep Amsterdam West" + city="Amsterdam"
+      → "Amsterdam West"  (district is better than bare city)
+
+    Falls back to city when no specific location can be extracted.
+    """
+    if not city:
+        return city or ""
+    if "|" not in title:
+        return city
+
+    # Part after first pipe; drop any further pipe-separated segments
+    part = title.split("|", 1)[1].strip().split("|")[0].strip()
+
+    # Strip facility/role type prefix
+    part = _PARTOU_TYPE_PREFIX_RE.sub("", part).strip()
+
+    if not part:
+        return city
+
+    # If part already starts with the city name, it's a city-district descriptor
+    # like "Amsterdam West" or "Amsterdam-Zuid" — use as-is for better geocoding
+    if part.lower().startswith(city.lower()):
+        return part.strip()
+
+    # Otherwise try to strip the city name from the end to isolate the street
+    city_end_re = re.compile(
+        r"[\s,\-]+?" + re.escape(city) + r"(?:\s*[\-\–/]\s*\w+)?\s*$",
+        re.IGNORECASE,
+    )
+    street = city_end_re.sub("", part).strip().strip(",").strip()
+
+    if len(street) > 2 and re.search(r"[A-Za-z]{2}", street):
+        return f"{street}, {city}"
+
+    # Part contained only the city or couldn't be parsed
+    return part if re.search(r"[A-Za-z]", part) else city
 
 CONTRACT_MAP = {
     "fulltime":  "fulltime",
@@ -186,13 +268,31 @@ def _parse_contentful_items(items: list) -> list[dict]:
         description  = item.get("aboutJob") or ""
         short_desc   = item.get("headerText") or ""
 
+        city     = item.get("city") or ""
+        address  = (item.get("address") or "").strip()
+        postcode = (item.get("postalCode") or "").replace(" ", "").strip()
+
+        # Build location_name from most precise available data:
+        # 1. Contentful address field (e.g. "Bolstraat 5, Rotterdam")
+        # 2. Contentful postalCode + city
+        # 3. Fallback: title extraction (kept for pool/flex vacancies without address)
+        if address and city:
+            location_name = f"{address}, {postcode} {city}".strip(", ").strip() if postcode \
+                else f"{address}, {city}"
+        elif postcode and city:
+            location_name = f"{postcode} {city}"
+        else:
+            location_name = _extract_location_from_title(title, city)
+
         jobs.append({
             "source_url":        source_url,
             "external_id":       external_id,
             "title":             title,
             "short_description": short_desc[:500] if short_desc else "",
             "description":       description,
-            "location_name":     item.get("city") or "",
+            "location_name":     location_name,
+            "city":              city,
+            "postcode":          postcode,
             "hours_min":         hours_min,
             "hours_max":         hours_max,
             "salary_min":        float(salary_min) if salary_min else None,
@@ -232,6 +332,94 @@ def _fetch_contentful() -> list[dict]:
     return _parse_contentful_items(items)
 
 
+def _fetch_detail_address(url: str) -> dict | None:
+    """
+    Fetch a Partou job detail page and extract the full address.
+
+    Tries in order:
+    1. schema.org JobPosting JSON-LD  → street, postcode, city
+    2. Next.js __NEXT_DATA__ embedded JSON
+    3. Address pattern in page text (postcode regex)
+
+    Returns {street, postcode, city, location_name} or None.
+    """
+    try:
+        resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.debug(f"[partou] Detail page failed {url}: {exc}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    # 1. JSON-LD JobPosting
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            data = json.loads(script.string or "")
+            if isinstance(data, dict) and "@graph" in data:
+                data = next(
+                    (item for item in data["@graph"] if item.get("@type") == "JobPosting"),
+                    None,
+                ) or {}
+            if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                locs = data.get("jobLocation", [])
+                if isinstance(locs, dict):
+                    locs = [locs]
+                for loc in locs:
+                    addr = loc.get("address", {})
+                    street = addr.get("streetAddress", "").strip()
+                    postcode = addr.get("postalCode", "").replace(" ", "").strip()
+                    city = addr.get("addressLocality", "").strip()
+                    if city:
+                        if street and postcode:
+                            loc_name = f"{street}, {postcode} {city}"
+                        elif postcode:
+                            loc_name = f"{postcode} {city}"
+                        else:
+                            loc_name = city
+                        return {"street": street, "postcode": postcode,
+                                "city": city, "location_name": loc_name}
+        except Exception:
+            pass
+
+    # 2. Next.js __NEXT_DATA__ embedded JSON
+    next_data_tag = soup.find("script", id="__NEXT_DATA__")
+    if next_data_tag:
+        try:
+            next_data = json.loads(next_data_tag.string or "")
+            # Walk the props tree looking for address-like keys
+            raw = json.dumps(next_data)
+            pc_m = POSTCODE_RE.search(raw)
+            if pc_m:
+                postcode = pc_m.group(1).replace(" ", "")
+                # Try to find city after postcode in the JSON string
+                after = raw[pc_m.end():pc_m.end() + 60]
+                city_m = re.search(r'["\s,]+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,30}?)["\\,]', after)
+                city = city_m.group(1).strip() if city_m else ""
+                if city:
+                    return {"street": "", "postcode": postcode,
+                            "city": city, "location_name": f"{postcode} {city}"}
+        except Exception:
+            pass
+
+    # 3. Postcode pattern in rendered page text
+    text = soup.get_text(separator=" ", strip=True)
+    pc_m = POSTCODE_RE.search(text)
+    if pc_m:
+        postcode = pc_m.group(1).replace(" ", "")
+        after = text[pc_m.end():pc_m.end() + 80]
+        city_m = re.match(
+            r"\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{2,35}?)(?:\s{2,}|[•·\n,]|$)",
+            after,
+        )
+        city = city_m.group(1).strip() if city_m else ""
+        if city:
+            return {"street": "", "postcode": postcode,
+                    "city": city, "location_name": f"{postcode} {city}"}
+
+    return None
+
+
 class PartouScraper(BaseScraper):
     company_slug = "partou"
 
@@ -269,4 +457,6 @@ class PartouScraper(BaseScraper):
         }
 
     def fetch_jobs(self) -> list[dict]:
+        # Contentful API now returns address, postalCode, latitude, longitude directly
+        # — no need to scrape individual detail pages.
         return _fetch_contentful()

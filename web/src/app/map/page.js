@@ -110,31 +110,46 @@ function AddressSearch({ onLocationSelect }) {
   );
 }
 
+const RADIUS_OPTIONS = [5, 10, 15, 25, 50];
+
 export default function MapPage() {
   const { user } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
   const [blurred, setBlurred] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ job_type: "" });
+  const [apiError, setApiError] = useState(false);
+  const [filters, setFilters] = useState({ job_type: "", radius: null });
   const [userLocation, setUserLocation] = useState(null);
   const [mobileView, setMobileView] = useState("map");
 
-  useEffect(() => {
+  const loadJobs = useCallback(() => {
     setLoading(true);
-    api.jobMapPins(filters.job_type || undefined)
+    setApiError(false);
+    const fetchJobs = userLocation && filters.radius
+      ? api.nearbyJobs({ lat: userLocation.lat, lng: userLocation.lng, radius: filters.radius, job_type: filters.job_type || undefined })
+      : api.jobMapPins({ job_type: filters.job_type || undefined });
+
+    fetchJobs
       .then((data) => {
         setJobs(data.results || []);
         setTotal(data.total ?? (data.results || []).length);
         setBlurred(data.blurred ?? false);
       })
-      .catch(() => {})
+      .catch(() => setApiError(true))
       .finally(() => setLoading(false));
-  }, [filters.job_type]);
+  }, [filters.job_type, filters.radius, userLocation]);
+
+  useEffect(() => {
+    loadJobs();
+  }, [loadJobs]);
 
   const handleGeolocate = () => {
     navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setFilters((f) => ({ ...f, radius: f.radius ?? 15 }));
+      },
       () => alert("Locatie niet beschikbaar. Typ een adres in het zoekveld.")
     );
   };
@@ -161,7 +176,10 @@ export default function MapPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <AddressSearch onLocationSelect={setUserLocation} />
+          <AddressSearch onLocationSelect={(loc) => {
+            setUserLocation(loc);
+            setFilters((f) => ({ ...f, radius: f.radius ?? 15 }));
+          }} />
           <select
             value={filters.job_type}
             onChange={(e) => setFilters((f) => ({ ...f, job_type: e.target.value }))}
@@ -172,6 +190,36 @@ export default function MapPage() {
             ))}
           </select>
         </div>
+
+        {/* Radius filter — alleen zichtbaar als locatie bekend is */}
+        {userLocation && (
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <span className="text-xs text-gray-500 shrink-0">Straal:</span>
+            {RADIUS_OPTIONS.map((r) => (
+              <button
+                key={r}
+                onClick={() => setFilters((f) => ({ ...f, radius: r }))}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                  filters.radius === r
+                    ? "bg-blue-700 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-blue-100"
+                }`}
+              >
+                {r} km
+              </button>
+            ))}
+            <button
+              onClick={() => setFilters((f) => ({ ...f, radius: null }))}
+              className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${
+                filters.radius === null
+                  ? "bg-blue-700 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-blue-100"
+              }`}
+            >
+              Alle
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Mobile toggle */}
@@ -222,7 +270,18 @@ export default function MapPage() {
             </div>
           )}
           <div className="overflow-y-auto flex-1">
-            {jobs.length === 0 && !loading && (
+            {!loading && apiError && (
+              <div className="p-6 text-center text-gray-400 text-sm">
+                <p>Vacatures konden niet worden geladen.</p>
+                <button
+                  onClick={loadJobs}
+                  className="mt-2 px-3 py-1.5 rounded-lg bg-blue-700 text-white text-xs font-medium hover:bg-blue-800"
+                >
+                  Opnieuw proberen
+                </button>
+              </div>
+            )}
+            {!loading && !apiError && jobs.length === 0 && (
               <div className="p-6 text-center text-gray-400 text-sm">Geen vacatures gevonden.</div>
             )}
             {jobs.map((job) => (

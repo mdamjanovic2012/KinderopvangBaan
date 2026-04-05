@@ -1,7 +1,13 @@
 const React = require("react");
 
-const Map = ({ children, ref: _ref, ...rest }) =>
-  React.createElement("div", { "data-testid": "mapbox-map" }, children);
+const Map = React.forwardRef(({ children }, ref) => {
+  // Expose flyTo mock on the ref so cluster-click tests can verify it is called
+  React.useImperativeHandle(ref, () => ({
+    flyTo: jest.fn(),
+    fitBounds: jest.fn(),
+  }));
+  return React.createElement("div", { "data-testid": "mapbox-map" }, children);
+});
 
 const Marker = ({ children, onClick, longitude: _lng, latitude: _lat, anchor: _a }) =>
   React.createElement("div", { "data-testid": "map-marker", onClick }, children);

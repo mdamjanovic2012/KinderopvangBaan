@@ -13,6 +13,7 @@ Integratie tests (mark=integration): echte site via Playwright.
 import sys
 import os
 import pytest
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -20,12 +21,14 @@ from scrapers.kinderdam import (
     _get_regio_urls,
     _extract_cards_from_regio_page,
     _extract_description_from_html,
+    _extract_address_from_html,
     _parse_euros,
     _parse_contract,
     _werksoort_to_job_type,
     BANNER_CONTENT_ID,
     BASE_URL,
     JOBS_URL,
+    KinderdamScraper,
 )
 
 
@@ -224,6 +227,16 @@ class TestExtractCardsFromRegioPage:
         assert len(jobs) == 1
         assert "pm" in jobs[0]["source_url"]
 
+    def test_card_with_empty_title_is_skipped(self):
+        """Cards where all span.text are empty should be skipped."""
+        card = f"""<a class="vtlink border_5" href="/vacaturebeschrijving-kinderdam/pm">
+            <span class="text">  </span>
+            <span class="text">  </span>
+        </a>"""
+        html = f"<html><body>{card}</body></html>"
+        jobs = _extract_cards_from_regio_page(html)
+        assert jobs == []
+
     def test_no_hours_gives_none(self):
         card = f"""<a class="vtlink border_5" href="/vacaturebeschrijving-kinderdam/pm">
             <span class="text">PM BSO</span>
@@ -234,6 +247,16 @@ class TestExtractCardsFromRegioPage:
         jobs = _extract_cards_from_regio_page(html)
         assert jobs[0]["hours_min"] is None
         assert jobs[0]["hours_max"] is None
+
+    def test_single_uur_hours(self):
+        """'24 uur' without a range should give hours_min = hours_max = 24."""
+        html = make_regio_html(make_card_html(
+            "PM BSO", "BSO", "Amsterdam", "24 uur",
+            "/vacaturebeschrijving-kinderdam/pm-bso-single"
+        ))
+        jobs = _extract_cards_from_regio_page(html)
+        assert jobs[0]["hours_min"] == 24
+        assert jobs[0]["hours_max"] == 24
 
 
 # ── _extract_description_from_html ───────────────────────────────────────────────
@@ -265,6 +288,72 @@ class TestExtractDescription:
     def test_max_5000_chars(self):
         html = f"<html><body><article>{'x' * 10_000}</article></body></html>"
         assert len(_extract_description_from_html(html)) <= 5000
+
+
+# ── _extract_address_from_html ────────────────────────────────────────────────────
+
+class TestExtractAddressFromHtml:
+    def test_postcode_and_street_extracted(self):
+        html = """<html><body><main>
+            <h1>PM BSO Rotterdam</h1>
+            <p>Kom werken op Bergweg 23, 3037LE Rotterdam!</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "3037LE"
+        assert "Bergweg" in location_name
+        assert "23" in location_name
+
+    def test_postcode_without_street_gives_postcode_city(self):
+        html = """<html><body><main>
+            <h1>BSO Groningen</h1>
+            <p>Wij zijn gevestigd in 9712AB Groningen.</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "9712AB"
+        assert "9712AB" in location_name
+
+    def test_no_postcode_returns_empty(self):
+        html = """<html><body><main>
+            <h1>PM Utrecht</h1>
+            <p>Werken in Utrecht centrum.</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == ""
+        assert city == ""
+        assert location_name == ""
+
+    def test_empty_html_returns_empty(self):
+        postcode, city, location_name = _extract_address_from_html("")
+        assert postcode == city == location_name == ""
+
+    def test_postcode_with_space_normalized(self):
+        html = """<html><body><main>
+            <p>Adres: 3011 AB Rotterdam</p>
+        </main></body></html>"""
+        postcode, city, location_name = _extract_address_from_html(html)
+        assert postcode == "3011AB"
+
+
+# ── KinderdamScraper.fetch_company ───────────────────────────────────────────────
+
+class TestKinderdamFetchCompany:
+    def test_returns_dict_with_name(self):
+        scraper = KinderdamScraper()
+        resp = MagicMock()
+        resp.text = '<html><head><meta name="description" content="Kinderdam kinderopvang Rotterdam"></head><body></body></html>'
+        resp.raise_for_status = MagicMock()
+        with patch("scrapers.kinderdam.requests.get", return_value=resp):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kinderdam"
+        assert company["description"] == "Kinderdam kinderopvang Rotterdam"
+        assert BASE_URL in company["website"]
+
+    def test_graceful_on_request_error(self):
+        scraper = KinderdamScraper()
+        with patch("scrapers.kinderdam.requests.get", side_effect=Exception("timeout")):
+            company = scraper.fetch_company()
+        assert company["name"] == "Kinderdam"
+        assert company["logo_url"] == ""
 
 
 # ── Integratie tests (echte site, vereist netwerk + Playwright) ───────────────────

@@ -1,6 +1,12 @@
 // Mock supercluster — individual features by default, cluster wanneer >= 5 punten
 class Supercluster {
-  constructor() { this._points = []; }
+  constructor(options = {}) {
+    this._points = [];
+    this._options = options;
+    // Allow tests to control whether this is a "terminal" cluster
+    // (all points at same location, expansionZoom > maxZoom)
+    this._terminalCluster = false;
+  }
 
   load(points) {
     this._points = points;
@@ -26,7 +32,12 @@ class Supercluster {
     }));
   }
 
-  getClusterExpansionZoom() { return 10; }
+  getClusterExpansionZoom() {
+    // Return 15 (> maxZoom 14) to simulate terminal cluster (all points at same location)
+    return this._terminalCluster ? 15 : 10;
+  }
+
+  getLeaves() { return this._points; }
 }
 
 module.exports = Supercluster;
