@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from scrapers.wordpress_jobs import WordPressJobsScraper, get_job_links_from_listing, _parse_hours
 from scrapers.base import SCRAPER_HEADERS
 
-SALARY_RE = re.compile(r"€\s*([\d.,]+)\s*[-–]\s*€?\s*([\d.,]+)", re.I)
+SALARY_RE = re.compile(r"€\s*([\d.,]+)[,\-]*\s*(?:[-–]|en)\s*€?\s*([\d.,]+)", re.I)
 
 
 def _parse_euros(raw: str) -> float | None:
@@ -87,12 +87,27 @@ class WijZijnJONGScraper(WordPressJobsScraper):
         city_el = soup.select_one("li.location-place")
         city = city_el.get_text(strip=True) if city_el else ""
 
+        # City fallback: extraheer tweede segment uit "Titel | Stad | Locatie"
+        if not city and "|" in title:
+            parts = [p.strip() for p in title.split("|")]
+            if len(parts) >= 2 and re.match(r"^[A-Z][a-zÀ-ÿ]{2,25}$", parts[1].strip()):
+                city = parts[1].strip()
+
         hours_el = soup.select_one("li.hours")
         hours_text = hours_el.get_text(strip=True) if hours_el else ""
         hours_min, hours_max = _parse_hours(hours_text) if hours_text else (None, None)
 
-        content = soup.select_one("div.content")
-        desc = content.get_text(separator="\n", strip=True)[:5000] if content else ""
+        # Beschrijving: job-specifieke content blokken
+        desc_parts = []
+        for sel in [".twz-job__content", ".twz-page-section", "article", ".entry-content"]:
+            el = soup.select_one(sel)
+            if el:
+                desc_parts.append(el.get_text(separator="\n", strip=True))
+                break
+        desc = "\n\n".join(desc_parts)[:5000] if desc_parts else ""
+        if not desc:
+            content_el = soup.select_one("div.content") or soup.select_one("main")
+            desc = content_el.get_text(separator="\n", strip=True)[:5000] if content_el else ""
 
         salary_min = salary_max = None
         sm = SALARY_RE.search(desc)

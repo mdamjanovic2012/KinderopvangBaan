@@ -248,6 +248,16 @@ class TestExtractCardsFromRegioPage:
         assert jobs[0]["hours_min"] is None
         assert jobs[0]["hours_max"] is None
 
+    def test_single_uur_hours(self):
+        """'24 uur' without a range should give hours_min = hours_max = 24."""
+        html = make_regio_html(make_card_html(
+            "PM BSO", "BSO", "Amsterdam", "24 uur",
+            "/vacaturebeschrijving-kinderdam/pm-bso-single"
+        ))
+        jobs = _extract_cards_from_regio_page(html)
+        assert jobs[0]["hours_min"] == 24
+        assert jobs[0]["hours_max"] == 24
+
 
 # ── _extract_description_from_html ───────────────────────────────────────────────
 

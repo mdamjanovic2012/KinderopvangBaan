@@ -12,7 +12,7 @@ LISTING_HTML = """<html><body>
 
 DETAIL_HTML = """<html><body>
 <h1>Pedagogisch Medewerker Groep</h1>
-<main><p>Wij zoeken een PM voor 24-32 uur per week in Almere.</p></main>
+<main><p>Wij zoeken een PM voor 24-32 uur per week. Locatie: 1321KL Almere.</p></main>
 </body></html>"""
 
 
@@ -39,6 +39,16 @@ class TestWaskoFetchJobs:
             jobs = scraper.fetch_jobs()
         assert jobs[0]["hours_min"] == 24
         assert jobs[0]["hours_max"] == 32
+
+    def test_city_from_postcode(self):
+        """HTML fallback extracts city from postcode pattern."""
+        scraper = WaskoScraper()
+        listing_r = MagicMock(); listing_r.text = LISTING_HTML; listing_r.raise_for_status = MagicMock()
+        detail_r = MagicMock(); detail_r.text = DETAIL_HTML; detail_r.raise_for_status = MagicMock()
+        with patch("scrapers.wordpress_jobs.requests.get", side_effect=[listing_r, detail_r, detail_r]):
+            jobs = scraper.fetch_jobs()
+        assert jobs[0]["city"] == "Almere"
+        assert jobs[0]["postcode"] == "1321KL"
 
     def test_empty_on_error(self):
         with patch("scrapers.wordpress_jobs.requests.get", side_effect=Exception("err")):

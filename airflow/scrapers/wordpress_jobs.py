@@ -31,6 +31,14 @@ from scrapers.base import BaseScraper, SCRAPER_HEADERS
 
 logger = logging.getLogger(__name__)
 
+# Postcode patroon voor Nederland: 4 cijfers + 2 hoofdletters (bijv. 1234 AB)
+_POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+_STREET_RE   = re.compile(
+    r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
+    r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
+    re.I,
+)
+
 EMPLOYMENT_TYPE_MAP = {
     "FULL_TIME":    "fulltime",
     "PART_TIME":    "parttime",
@@ -143,8 +151,10 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
     desc_raw = jsonld.get("description", "")
     desc = _strip_html(desc_raw) if desc_raw else ""
 
-    # Uren (uit beschrijving)
+    # Uren (uit beschrijving, fallback uit titel)
     hours_min, hours_max = _parse_hours(desc)
+    if hours_min is None:
+        hours_min, hours_max = _parse_hours(title)
 
     # External ID
     identifier = jsonld.get("identifier", {})
@@ -180,6 +190,36 @@ def parse_job_from_jsonld(url: str, jsonld: dict) -> dict:
         "contract_type":     contract_type,
         "job_type":          "",
     }
+
+
+def _extract_location_from_text(text: str) -> tuple[str, str, str]:
+    """
+    Extraheer (postcode, city, location_name) uit platte tekst via postcode-patroon.
+    Geeft ("", "", "") terug als geen postcode gevonden.
+    """
+    pc_m = _POSTCODE_RE.search(text)
+    if not pc_m:
+        return "", "", ""
+
+    postcode = pc_m.group(1).replace(" ", "")
+    after = text[pc_m.end():pc_m.end() + 80]
+    city_m = re.match(
+        r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,40}?)(?:\s*[•·\n,;.!?]|\s{2,}|\s+[A-Z][a-z]|\s*$)",
+        after,
+    )
+    city = city_m.group(1).strip() if city_m else ""
+
+    before = text[max(0, pc_m.start() - 120):pc_m.start()]
+    st_m = _STREET_RE.search(before + " " + pc_m.group(1))
+    if st_m:
+        street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+        location_name = f"{street}, {postcode} {city}".strip(", ").strip()
+    elif city:
+        location_name = f"{postcode} {city}"
+    else:
+        location_name = postcode
+
+    return postcode, city, location_name
 
 
 def get_job_links_from_listing(html: str, base_url: str, job_url_contains: str) -> list[str]:
@@ -289,6 +329,9 @@ class WordPressRestApiScraper(BaseScraper):
         main = soup.select_one("main") or soup.select_one("article") or soup.select_one(".entry-content")
         desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
         hours_min, hours_max = _parse_hours(desc)
+        if hours_min is None:
+            hours_min, hours_max = _parse_hours(title)
+        postcode, city, location_name = _extract_location_from_text(desc)
         external_id = url.rstrip("/").split("/")[-1]
 
         return {
@@ -297,8 +340,9 @@ class WordPressRestApiScraper(BaseScraper):
             "title":             title,
             "short_description": desc[:300],
             "description":       desc,
-            "location_name":     "",
-            "city":              "",
+            "location_name":     location_name,
+            "city":              city,
+            "postcode":          postcode,
             "salary_min":        None,
             "salary_max":        None,
             "hours_min":         hours_min,
@@ -403,6 +447,9 @@ class WordPressJobsScraper(BaseScraper):
         main = soup.select_one("main") or soup.select_one("article") or soup.select_one(".entry-content")
         desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
         hours_min, hours_max = _parse_hours(desc)
+        if hours_min is None:
+            hours_min, hours_max = _parse_hours(title)
+        postcode, city, location_name = _extract_location_from_text(desc)
         external_id = url.rstrip("/").split("/")[-1]
 
         return {
@@ -411,8 +458,9 @@ class WordPressJobsScraper(BaseScraper):
             "title":             title,
             "short_description": desc[:300],
             "description":       desc,
-            "location_name":     "",
-            "city":              "",
+            "location_name":     location_name,
+            "city":              city,
+            "postcode":          postcode,
             "salary_min":        None,
             "salary_max":        None,
             "hours_min":         hours_min,

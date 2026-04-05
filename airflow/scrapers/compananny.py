@@ -9,7 +9,7 @@ City comes from addressLocality which may include ", Nederlands" suffix — clea
 
 import re
 
-from scrapers.wordpress_jobs import WordPressJobsScraper, parse_job_from_jsonld, extract_job_posting_jsonld
+from scrapers.wordpress_jobs import WordPressJobsScraper, parse_job_from_jsonld, extract_job_posting_jsonld, _parse_hours
 from scrapers.base import SCRAPER_HEADERS
 import requests
 from bs4 import BeautifulSoup
@@ -56,6 +56,19 @@ class CompaNannyScraper(WordPressJobsScraper):
             # Propagate city cleanup into location_name (which may include city)
             if raw_city and raw_city != clean_city and raw_city in job.get("location_name", ""):
                 job["location_name"] = job["location_name"].replace(raw_city, clean_city).strip(", ").strip()
+
+            # Hours: JSON-LD has no workHours — extract from "24  tot 32" HTML block
+            if not job.get("hours_min"):
+                flex_div = soup.select_one("div.flex-col.mt-5")
+                if flex_div:
+                    paras = flex_div.find_all("p", class_="my-2")
+                    if paras:
+                        hours_raw = paras[0].get_text(strip=True)
+                        hours_norm = re.sub(r"\btot\b", "-", hours_raw, flags=re.I) + " uur"
+                        h_min, h_max = _parse_hours(hours_norm)
+                        if h_min:
+                            job["hours_min"] = h_min
+                            job["hours_max"] = h_max
             return job
 
         # HTML fallback
@@ -65,7 +78,6 @@ class CompaNannyScraper(WordPressJobsScraper):
             return None
 
         main = soup.select_one("main") or soup.select_one("article") or soup.select_one(".entry-content")
-        from scrapers.wordpress_jobs import _parse_hours
         desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
         hours_min, hours_max = _parse_hours(desc)
         external_id = url.rstrip("/").split("/")[-1]

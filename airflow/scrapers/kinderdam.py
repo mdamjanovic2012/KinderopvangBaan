@@ -163,6 +163,10 @@ def _extract_cards_from_regio_page(html: str) -> list[dict]:
         m = HOURS_RE.search(uren_raw)
         if m:
             hours_min, hours_max = int(m.group(1)), int(m.group(2))
+        else:
+            sg = re.search(r"\b(\d+)\s*uur\b", uren_raw, re.I)
+            if sg:
+                hours_min = hours_max = int(sg.group(1))
 
         jobs.append({
             "source_url":       href,

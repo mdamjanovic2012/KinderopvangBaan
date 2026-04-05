@@ -30,15 +30,21 @@ BASE_URL    = "https://www.werkenbijgro-up.nl"
 SITEMAP_URL = f"{BASE_URL}/sitemap.xml"
 JOBS_URL    = f"{BASE_URL}/kinderopvang/vacatures/"
 
-HOURS_RE    = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
-SALARY_RE   = re.compile(r"€\s*([\d.,]+)\s*(?:tot|[-–])\s*€?\s*([\d.,]+)", re.I)
-CITY_RE     = re.compile(r"\d{4}\s*[A-Z]{2}\s+([A-Za-zÀ-ÿ\s\-]+?)(?:\s*•|\s*$)", re.I)
-POSTCODE_RE = re.compile(r"(\d{4}\s*[A-Z]{2})")
+HOURS_RANGE_RE  = re.compile(r"(\d+)\s*[-–]\s*(\d+)\s*uur", re.I)
+HOURS_MAX_RE    = re.compile(r"<\s*(\d+)\s*uur", re.I)
+HOURS_SINGLE_RE = re.compile(r"\b(\d+)\s*uur\b", re.I)
+SALARY_RE       = re.compile(r"€\s*([\d.,]+)\s*(?:tot|[-–])\s*€?\s*([\d.,]+)", re.I)
+POSTCODE_RE     = re.compile(r"(\d{4}\s*[A-Z]{2})")
 # Matches "Straatnaam 45" or "Straatnaam 45a" immediately before a postcode
-STREET_RE   = re.compile(
+STREET_RE       = re.compile(
     r"([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.]{3,50}?)\s+(\d{1,4}[a-zA-Z]{0,2})"
     r"(?=\s*[,\n]?\s*\d{4}\s*[A-Z]{2})",
     re.I,
+)
+# Bullet-separator pattern: "• Rotterdam" — city immediately after bullet (no digits/euro signs)
+_BULLET_CITY_RE = re.compile(
+    r"•\s+([A-Z][A-Za-zÀ-ÿ\-]{1,25}"
+    r"(?:\s+(?:aan\s+den\s+|op\s+de\s+|aan\s+de\s+)[A-Z][A-Za-zÀ-ÿ\-]{1,25})?)",
 )
 
 # Trefwoorden die een URL identificeren als kinderopvang
@@ -122,11 +128,19 @@ def scrape_job_page(url: str) -> dict | None:
     main = soup.select_one("main") or soup.select_one("article") or soup.body
     text = main.get_text(separator=" ", strip=True) if main else ""
 
-    # Uren
+    # Uren: probeer range, dan max-only (< N uur), dan enkelvoud
     hours_min = hours_max = None
-    m = HOURS_RE.search(text)
+    m = HOURS_RANGE_RE.search(text)
     if m:
         hours_min, hours_max = int(m.group(1)), int(m.group(2))
+    else:
+        mx = HOURS_MAX_RE.search(text)
+        if mx:
+            hours_max = int(mx.group(1))
+        else:
+            sg = HOURS_SINGLE_RE.search(text)
+            if sg:
+                hours_min = hours_max = int(sg.group(1))
 
     # Salaris
     salary_min = salary_max = None
@@ -140,10 +154,11 @@ def scrape_job_page(url: str) -> dict | None:
     pc_m = POSTCODE_RE.search(text)
     if pc_m:
         postcode = pc_m.group(1).replace(" ", "")
-        # Zoek stad na postcode
+        # Zoek stad na postcode: hoofdwoord(en) — stop bij lowercase woord dat geen NL tussenvoegsel is
         after = text[pc_m.end():pc_m.end() + 80]
         city_m = re.match(
-            r"\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-]{1,40}?)(?:\s*[•·\n]|\s{2,}|\s+[A-Z][a-z]|\s*$)",
+            r"\s+([A-Z][A-Za-zÀ-ÿ\-]{1,25}"
+            r"(?:\s+(?:aan\s+den\s+|op\s+de\s+|aan\s+de\s+|bij\s+de\s+|ter\s+)[A-Z][A-Za-zÀ-ÿ\-]{1,25})?)",
             after,
         )
         if city_m:
@@ -153,6 +168,15 @@ def scrape_job_page(url: str) -> dict | None:
         st_m = STREET_RE.search(before + " " + pc_m.group(1))
         if st_m:
             street = f"{st_m.group(1).strip()} {st_m.group(2).strip()}"
+
+    # Fallback: stad direct na bullet separator (geen adres)
+    if not city:
+        bc_m = _BULLET_CITY_RE.search(text)
+        if bc_m:
+            candidate = bc_m.group(1).strip()
+            # Reject if looks like hours text or salary text
+            if not re.search(r"[€<>\d]", candidate):
+                city = candidate
 
     # Beschrijving (eerste 5000 tekens van main)
     desc = text[:5000] if text else ""

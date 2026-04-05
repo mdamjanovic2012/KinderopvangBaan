@@ -57,6 +57,18 @@ JOB_PAGE_NO_HOURS = """<html><body><main>
   <p>Je geeft leiding aan ons team van 15 medewerkers.</p>
 </main></body></html>"""
 
+JOB_PAGE_MAX_HOURS = """<html><body><main>
+  <h1>Pedagogisch medewerker BSO De Blokkendoos</h1>
+  <p>€2.641 tot €3.630 (Kinderopvang) • &lt; 20 uur • Zuidendijk 363a, 3317 NR Dordrecht</p>
+  <div>Je werkt op onze BSO locatie.</div>
+</main></body></html>"""
+
+JOB_PAGE_BULLET_CITY = """<html><body><main>
+  <h1>Pedagogisch medewerker flexpool Rotterdam</h1>
+  <p>€2.641 tot €3.630 (Kinderopvang) • Rotterdam</p>
+  <div>Wat ga je doen als PM flexpool.</div>
+</main></body></html>"""
+
 
 # ── _parse_euros ──────────────────────────────────────────────────────────────
 
@@ -148,6 +160,20 @@ class TestScrapeJobPage:
             job = scrape_job_page(f"{BASE_URL}/locatiemanager-amsterdam")
         assert job["hours_min"] is None
         assert job["hours_max"] is None
+
+    def test_max_only_hours(self):
+        """'< 20 uur' should give hours_max=20, hours_min=None."""
+        with patch("scrapers.gro_up.requests.get", return_value=self._mock_get(JOB_PAGE_MAX_HOURS)):
+            job = scrape_job_page(f"{BASE_URL}/pm-bso-blokkendoos")
+        assert job["hours_min"] is None
+        assert job["hours_max"] == 20
+        assert job["city"] == "Dordrecht"
+
+    def test_bullet_city_fallback(self):
+        """City extracted from bullet separator when no postcode present."""
+        with patch("scrapers.gro_up.requests.get", return_value=self._mock_get(JOB_PAGE_BULLET_CITY)):
+            job = scrape_job_page(f"{BASE_URL}/pm-flexpool-rotterdam")
+        assert job["city"] == "Rotterdam"
 
     def test_returns_none_on_http_error(self):
         with patch("scrapers.gro_up.requests.get", side_effect=Exception("timeout")):

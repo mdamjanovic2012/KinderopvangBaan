@@ -20,6 +20,33 @@ LISTING_HTML = """<html><body>
 <a href="/vacatures/">Alle vacatures</a>
 </body></html>"""
 
+JOBPOSTING_LD_NO_HOURS = {
+    "@context": "https://schema.org/",
+    "@type": "JobPosting",
+    "title": "Pedagogisch Medewerker",
+    "description": "<p>Wij zoeken een PM voor onze kinderopvang vestiging.</p>",
+    "hiringOrganization": {"@type": "Organization", "name": "CompaNanny"},
+    "datePosted": "21-02-2025",
+    "jobLocation": {
+        "@type": "Place",
+        "address": {
+            "@type": "PostalAddress",
+            "addressLocality": "Amsterdam, Nederlands",
+            "postalCode": "1012AB",
+        },
+    },
+}
+
+DETAIL_HTML_WITH_HOURS_BLOCK = f"""<html><body>
+<h1>Pedagogisch Medewerker</h1>
+<script type="application/ld+json">{json.dumps(JOBPOSTING_LD_NO_HOURS)}</script>
+<div class="flex flex-col mt-5">
+  <p class="my-2 text-white">24  tot 32</p>
+  <p class="my-2 text-white">MBO, HBO, WO</p>
+  <p class="my-2 text-white">Amsterdam, Amsterdam</p>
+</div>
+</body></html>"""
+
 JOBPOSTING_LD = {
     "@context": "https://schema.org/",
     "@type": "JobPosting",
@@ -154,6 +181,22 @@ class TestCompaNannyFetchJobs:
         with patch("scrapers.compananny.requests.get", return_value=detail_resp):
             job = scraper._scrape_job_page(url)
 
+        assert job["hours_min"] == 24
+        assert job["hours_max"] == 32
+
+    def test_hours_from_html_block(self):
+        """Hours extracted from 'div.flex-col.mt-5 > p.my-2' when not in description."""
+        scraper = CompaNannyScraper()
+        url = f"{BASE_URL}/vacatures/amsterdam/pedagogisch-medewerker"
+
+        detail_resp = MagicMock()
+        detail_resp.text = DETAIL_HTML_WITH_HOURS_BLOCK
+        detail_resp.raise_for_status = MagicMock()
+
+        with patch("scrapers.compananny.requests.get", return_value=detail_resp):
+            job = scraper._scrape_job_page(url)
+
+        assert job is not None
         assert job["hours_min"] == 24
         assert job["hours_max"] == 32
 
