@@ -1,11 +1,19 @@
 """
 Mundo Kinderopvang — werkenbijmundo.nl
 
-Job links zijn single-segment (geen /vacatures/ patroon).
-Alle job links staan direct op de homepage.
+Platform: WordPress + Divi Builder.
+Job links zijn single-segment paden direct op de homepage (geen /vacatures/ patroon).
+
+HTML structuur detailpagina:
+  Titel: #vacature-header .et_pb_text_inner h1
+         (fallback: h1 of h2)
+  Stad:  niet als apart veld — regex op beschrijvingstekst
+  Uren:  regex op beschrijvingstekst
+  Beschrijving: #et-boc .et_pb_text .et_pb_text_inner
 """
 
 import logging
+import re
 
 import requests
 from bs4 import BeautifulSoup
@@ -17,7 +25,12 @@ logger = logging.getLogger(__name__)
 
 BASE_URL     = "https://www.werkenbijmundo.nl"
 LISTING_URL  = "https://www.werkenbijmundo.nl/"
-SKIP_PATHS   = {"", "/", "/stage", "/contact", "/over-ons"}
+SKIP_PATHS   = {"", "/", "/stage", "/contact", "/over-ons", "/home"}
+
+_CITY_RE = re.compile(
+    r"(?:locatie|vestiging|adres|plaats|stad)[:\s]+([A-Z][A-Za-zÀ-ÿ\-\s]{2,25}?)(?:[.,\n]|$)",
+    re.I,
+)
 
 
 class MundoScraper(BaseScraper):
@@ -54,6 +67,9 @@ class MundoScraper(BaseScraper):
             path = href.replace(BASE_URL, "").rstrip("/")
             if path in SKIP_PATHS or not path:
                 continue
+            # Geen navigatielinks (menu items, footer etc.)
+            if any(x in path for x in ("/wp-", "#", "?", ".xml", ".pdf")):
+                continue
             if href not in seen:
                 seen.add(href)
                 links.append(href)
@@ -79,14 +95,36 @@ class MundoScraper(BaseScraper):
                 jobs.append(parse_job_from_jsonld(url, jsonld))
                 continue
 
-            h1 = soup.find("h1") or soup.find("h2")
+            # Divi: vacaturetitel in #vacature-header sectie
+            header_sec = soup.select_one("#vacature-header")
+            h1 = None
+            if header_sec:
+                h1 = header_sec.find("h1") or header_sec.find("h2")
+            if not h1:
+                h1 = soup.find("h1") or soup.find("h2")
             title = h1.get_text(strip=True) if h1 else ""
             if not title:
                 continue
 
-            main = soup.select_one("main") or soup.select_one("article") or soup.body
-            desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
+            # Beschrijving: Divi text modules
+            desc_parts = []
+            for el in soup.select("#et-boc .et_pb_text .et_pb_text_inner"):
+                t = el.get_text(separator="\n", strip=True)
+                if t:
+                    desc_parts.append(t)
+            desc = "\n\n".join(desc_parts)[:5000]
+            if not desc:
+                main = soup.select_one("main") or soup.select_one("article") or soup.body
+                desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
+
             hours_min, hours_max = _parse_hours(desc)
+
+            # Stad: regex op beschrijving
+            city = ""
+            m = _CITY_RE.search(desc)
+            if m:
+                city = m.group(1).strip()
+
             external_id = url.rstrip("/").split("/")[-1]
 
             jobs.append({
@@ -95,8 +133,8 @@ class MundoScraper(BaseScraper):
                 "title":             title,
                 "short_description": desc[:300],
                 "description":       desc,
-                "location_name":     "",
-                "city":              "",
+                "location_name":     city,
+                "city":              city,
                 "salary_min":        None,
                 "salary_max":        None,
                 "hours_min":         hours_min,

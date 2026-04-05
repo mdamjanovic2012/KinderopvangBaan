@@ -1,19 +1,32 @@
 """
 Welluswijs Kinderopvang scraper — welluswijs.nl
 
-Detail pages gebruiken H2 als vacature-titel (geen H1, geen JSON-LD).
+Platform: WordPress + Elementor + ACF (velden niet publiek via REST).
+Listing URL: https://www.welluswijs.nl/vacatures/
+Job URLs:    /vacature/{slug}/
+
+HTML structuur detailpagina:
+  Titel:  Eerste h2.elementor-heading-title (geen H1 op de pagina)
+  Stad:   Niet als apart structuurveld; regex op beschrijvingstekst
+          ("in {Stad}", "te {Stad}", "locatie {Stad}")
+  Uren:   Eerste .elementor-widget-text-editor widget die uren bevat
+  Beschrijving: .elementor-widget-theme-post-content
 """
 
 import logging
+import re
 
 import requests
 from bs4 import BeautifulSoup
 
 from scrapers.base import SCRAPER_HEADERS
-from scrapers.wordpress_jobs import WordPressJobsScraper, extract_job_posting_jsonld, \
-    parse_job_from_jsonld, _parse_hours
+from scrapers.wordpress_jobs import WordPressJobsScraper, _parse_hours
 
 logger = logging.getLogger(__name__)
+
+_CITY_RE = re.compile(
+    r"\b(?:in|te|locatie|vestiging)\s+([A-Z][A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{1,25})\b"
+)
 
 
 class WelluswijsScraper(WordPressJobsScraper):
@@ -28,23 +41,46 @@ class WelluswijsScraper(WordPressJobsScraper):
             resp = requests.get(url, headers=SCRAPER_HEADERS, timeout=20)
             resp.raise_for_status()
         except Exception as exc:
-            logger.warning(f"[{self.company_slug}] Detailpagina mislukt {url}: {exc}")
+            logger.warning(f"[welluswijs] Detailpagina mislukt {url}: {exc}")
             return None
 
         soup = BeautifulSoup(resp.text, "lxml")
 
-        jsonld = extract_job_posting_jsonld(soup)
-        if jsonld and jsonld.get("title"):
-            return parse_job_from_jsonld(url, jsonld)
-
-        heading = soup.find("h1") or soup.find("h2")
-        title = heading.get_text(strip=True) if heading else ""
+        # Geen H1; eerste H2 in Elementor single template is de vacaturetitel
+        h2 = soup.select_one("h2.elementor-heading-title")
+        title = h2.get_text(strip=True) if h2 else ""
+        if not title:
+            h1 = soup.find("h1")
+            title = h1.get_text(strip=True) if h1 else ""
         if not title:
             return None
 
-        main = soup.select_one("main") or soup.select_one("article") or soup.select_one(".entry-content")
-        desc = main.get_text(separator="\n", strip=True)[:5000] if main else ""
-        hours_min, hours_max = _parse_hours(desc)
+        # Uren: zoek in text-editor widgets
+        hours_min = hours_max = None
+        for widget in soup.select(".elementor-widget-text-editor .elementor-widget-container"):
+            t = widget.get_text(strip=True)
+            if t:
+                hours_min, hours_max = _parse_hours(t)
+                if hours_min is not None:
+                    break
+
+        # Beschrijving
+        desc_el = (
+            soup.select_one(".elementor-widget-theme-post-content")
+            or soup.select_one("main")
+            or soup.select_one("article")
+        )
+        desc = desc_el.get_text(separator="\n", strip=True)[:5000] if desc_el else ""
+
+        if hours_min is None:
+            hours_min, hours_max = _parse_hours(desc)
+
+        # Stad: regex op beschrijvingstekst
+        city = ""
+        m = _CITY_RE.search(desc)
+        if m:
+            city = m.group(1).strip()
+
         external_id = url.rstrip("/").split("/")[-1]
 
         return {
@@ -53,8 +89,8 @@ class WelluswijsScraper(WordPressJobsScraper):
             "title":             title,
             "short_description": desc[:300],
             "description":       desc,
-            "location_name":     "",
-            "city":              "",
+            "location_name":     city,
+            "city":              city,
             "salary_min":        None,
             "salary_max":        None,
             "hours_min":         hours_min,

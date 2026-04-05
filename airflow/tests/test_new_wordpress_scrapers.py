@@ -98,7 +98,7 @@ WP_SCRAPERS = [
     (KleinAlkmaarScraper,   "klein-alkmaar",     "/vacatures/"),
     (KleurrijkScraper,      "kleurrijk",         "/vacatures/"),
     (KoFrieslandScraper,    "ko-friesland",      "/vacatures/"),
-    (KoosScraper,           "koos",              "/werken-bij/"),
+    (KoosScraper,           "koos",              "/vacature/"),
     (KosmoScraper,          "kosmo",             "/vacatures"),
     (KshScraper,            "ksh",               "/vacature/"),
     (LpsScraper,            "lps",               "/vacatures-bij-lps/"),
